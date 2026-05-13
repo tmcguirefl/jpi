@@ -37,9 +37,10 @@ tui_init =: monad define
   if. 0 = stdscr do. 1!:2&2 'ERROR: ncurses init failed' return. end.
   cbreak_ncurses_ ''
   noecho_ncurses_ ''
-  keypad_ncurses_ stdscr , 1
+  NB. keypad > i x c — pointer;boolean (c type needs ;)
+  keypad_ncurses_ stdscr;1
   start_color_ncurses_ ''
-  NB. color pairs: fg, bg
+  NB. init_pair > i s s s — all short ints
   init_pair_ncurses_ CP_NORMAL , COLOR_WHITE_ncurses_ , COLOR_BLACK_ncurses_
   init_pair_ncurses_ CP_STATUS , COLOR_BLACK_ncurses_ , COLOR_CYAN_ncurses_
   init_pair_ncurses_ CP_TOOL , COLOR_GREEN_ncurses_ , COLOR_BLACK_ncurses_
@@ -58,11 +59,13 @@ tui_resize =: monad define
   TUI_LINES =: ". _1 }. 2!:0 'tput lines'
   TUI_COLS  =: ". _1 }. 2!:0 'tput cols'
   out_h =. TUI_LINES - 2
+  NB. newwin > x i i i i — height,width,row,col
   win_output =: newwin_ncurses_ out_h , TUI_COLS , 0 , 0
   win_status =: newwin_ncurses_ 1 , TUI_COLS , out_h , 0
   win_input  =: newwin_ncurses_ 1 , TUI_COLS , (out_h + 1) , 0
-  scrollok_ncurses_ win_output , 1
-  keypad_ncurses_ win_input , 1
+  NB. scrollok > i x c — pointer;boolean
+  scrollok_ncurses_ win_output;1
+  keypad_ncurses_ win_input;1
 )
 
 NB. ================================================================
@@ -72,8 +75,11 @@ tui_print =: verb define
   CP_NORMAL tui_print y
 :
   TUI_OUTPUT =: TUI_OUTPUT , < y
+  NB. wattr_on > i x x x — all numeric
   wattr_on_ncurses_ win_output , (COLOR_PAIR_ncurses_ x) , 0
+  NB. waddnstr > i x *c i — pointer;string;length
   waddnstr_ncurses_ win_output ; y ; TUI_COLS - 1
+  NB. waddch > i x x — pointer,charcode
   waddch_ncurses_ win_output , 10
   wattr_off_ncurses_ win_output , (COLOR_PAIR_ncurses_ x) , 0
   wrefresh_ncurses_ win_output
@@ -82,9 +88,11 @@ tui_print =: verb define
 NB. ================================================================
 NB. Draw the status bar
 tui_draw_status =: monad define
+  NB. wbkgd > i x x — pointer,attr
   wbkgd_ncurses_ win_status , COLOR_PAIR_ncurses_ CP_STATUS
   wclear_ncurses_ win_status
-  wmove_ncurses_ win_status , 0 0
+  NB. wmove > i x i i — pointer,row,col
+  wmove_ncurses_ win_status , 0 , 0
   left =. ' J-PI | ' , MODEL
   branch =. git_branch ''
   right =. ''
@@ -104,7 +112,7 @@ NB. ================================================================
 NB. Draw the input line
 tui_draw_input =: monad define
   wclear_ncurses_ win_input
-  wmove_ncurses_ win_input , 0 0
+  wmove_ncurses_ win_input , 0 , 0
   wattr_on_ncurses_ win_input , (COLOR_PAIR_ncurses_ CP_PROMPT) , 0
   waddnstr_ncurses_ win_input ; '> ' ; 2
   wattr_off_ncurses_ win_input , (COLOR_PAIR_ncurses_ CP_PROMPT) , 0
@@ -150,13 +158,11 @@ NB. ================================================================
 NB. Main TUI loop
 tui_run =: monad define
   tui_init ''
-  NB. welcome
   CP_PROMPT tui_print 'J-PI Agent (TUI mode)'
   CP_MUTED tui_print 'Commands: ask, read, run, edit, write, git, grep, find, model, usage, save, load, clear, exit'
   tui_print ''
   tui_draw_status ''
   tui_draw_input ''
-  NB. main loop
   while. 1 do.
     key =. wgetch_ncurses_ win_input
     select. key
