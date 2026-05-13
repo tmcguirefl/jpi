@@ -13,9 +13,9 @@ jkv =: monad define
   (,< k) ,: ,< v
 )
 
-NB. Merge key-value pairs into a single JSON object
+NB. Merge key-value pairs into a single JSON object (2-row matrix)
 jmerge =: monad define
-  r =. 0 2 $ <''
+  r =. 2 0 $ <''          NB. 2 rows, 0 columns
   for_p. y do.
     r =. r ,. > p
   end.
