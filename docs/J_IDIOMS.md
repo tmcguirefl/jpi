@@ -162,6 +162,15 @@ table =. _2 ]\ 'key1';'val1';'key2';'val2'
 NB. result: 2x2 boxed table
 ```
 
+### Recover a table from an accidentally flattened list
+If `;` flattens a 2-row table into a list, use `(-rowlen) ]\` to reshape:
+```j
+NB. dec_json objects are always 2-row tables (keys;values)
+NB. if flattened to a list, recover with:
+args =. _2 ]\ args    NB. turn flat list back into 2-row table
+```
+General pattern: if you know the row length, `(-rowlen) ]\` reshapes any list into a table.
+
 ---
 
 ## Table Lookup with i.
