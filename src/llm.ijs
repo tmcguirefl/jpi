@@ -83,7 +83,11 @@ llm_call =: monad define
     echo 'Set OPENROUTER_API_KEY or ANTHROPIC_API_KEY env var.'
     '' return.
   end.
+  t0 =. 6!:1 ''                    NB. start timer
   raw =. API_URL http_post y
+  t1 =. 6!:1 ''                    NB. end timer
+  elapsed =. t1 - t0
+  echo '  [' , (}: ": 0.01 * <. 100 * elapsed) , 's]'
   dec_json raw
 )
 
