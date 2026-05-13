@@ -9,3 +9,7 @@ Thumbs.db
 # Temporary / output files
 *.tmp
 *.log
+
+# API keys / secrets
+.env
+api_key.txt

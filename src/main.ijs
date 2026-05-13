@@ -3,9 +3,12 @@ NB. main.ijs
 
 load 'agent.ijs'
 
-NB. Interactive loop: reads from stdin, dispatches to agent
+NB. Interactive loop
 run_agent =: monad define
-  echo 'J-PI Agent ready. Type a command or "exit" to quit.'
+  echo ''
+  echo 'J-PI Agent ready.'
+  echo 'Commands: read <file> | run <cmd> | edit | write | ask <question> | exit'
+  echo ''
   while. 1 do.
     input =. 1!:1 ] 1
     if. input -: 'exit' do. break. end.

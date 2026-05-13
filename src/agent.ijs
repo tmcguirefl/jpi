@@ -1,18 +1,20 @@
-NB. Phase 7: Integrated Agent
+NB. Agent - integrated dispatcher
 NB. agent.ijs
+NB. Supports both direct commands and LLM-backed mode
 
+load 'config.ijs'
 load 'log.ijs'
-load 'safety.ijs'
 load 'read_file.ijs'
 load 'run_cmd.ijs'
 load 'edit_file.ijs'
 load 'write_file.ijs'
+load 'llm.ijs'
+load 'tool_exec.ijs'
 
 NB. ----------------------------------------------------------------
-NB. Action verbs
+NB. Direct-mode action verbs (no LLM needed)
 
 read_verb =: monad define
-  log 'read: ', y
   echo 'Reading: ', y
   read_file_str y
 )
@@ -23,28 +25,30 @@ run_verb =: monad define
     echo 'Command blocked for safety.'
     return.
   end.
-  log 'run: ', y
   echo 'Running: ', y
   run_cmd_str y
 )
 
 edit_verb =: monad define
-  log 'edit: ', y
   echo 'Edit: ', y
 )
 
 write_verb =: monad define
-  log 'write: ', y
   echo 'Write: ', y
 )
 
+ask_verb =: monad define
+  echo 'Asking LLM: ', y
+  resp =. llm_ask y
+  echo enc_json resp
+)
+
 unknown_verb =: monad define
-  log 'unknown: ', y
   echo 'Unknown command: ', y
 )
 
 NB. Boxed action names
-ACTIONS =: 'read';'run';'edit';'write'
+ACTIONS =: 'read';'run';'edit';'write';'ask'
 
 NB. ----------------------------------------------------------------
 NB. Main agent verb
@@ -53,7 +57,7 @@ agent =: monad define
   cmd =. tolower > {. words
   remainder =. _1 }. ; (,&' ') each }. words
   idx =. ACTIONS i. < cmd
-  (read_verb`run_verb`edit_verb`write_verb`unknown_verb) @. idx remainder
+  (read_verb`run_verb`edit_verb`write_verb`ask_verb`unknown_verb) @. idx remainder
 )
 
 echo 'J-PI agent loaded.'
