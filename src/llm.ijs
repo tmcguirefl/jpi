@@ -14,26 +14,32 @@ EDIT_PARAMS  =: '{"type":"object","properties":{"path":{"type":"string"},"old_te
 WRITE_PARAMS =: '{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}'
 
 NB. ----------------------------------------------------------------
-NB. Build tool JSON string: x = schema key, y = name;desc;params
+NB. Build a single tool JSON string
+NB. x = schema key ('parameters' or 'input_schema'), y = name;desc;params
 mk_tool =: dyad define
   'n d p' =. y
   '{"name":"' , n , '","description":"' , d , '","' , x , '":' , p , '}'
 )
 
-NB. Build tools JSON array for the current provider
+NB. ----------------------------------------------------------------
+NB. Build tools JSON array for current provider
 get_tools =: monad define
-  defs =. ('read';'Read file contents';READ_PARAMS) ; ('bash';'Execute shell command';RUN_PARAMS) ; ('edit';'Edit file with find/replace';EDIT_PARAMS) ; ('write';'Write content to file';WRITE_PARAMS)
+  NB. each def boxed separately with < so they don't flatten
+  defs =. (<'read';'Read file contents';READ_PARAMS) , (<'bash';'Execute shell command';RUN_PARAMS) , (<'edit';'Edit file with find/replace';EDIT_PARAMS) , (<'write';'Write content to file';WRITE_PARAMS)
+  r =. ''
   select. PROVIDER
   case. 'openrouter' do.
-    NB. OpenAI format: {type:function, function:{name,desc,parameters}}
-    items =. > each 'parameters' mk_tool each defs
-    items =. '{"type":"function","function":' , each items ,&.> < '}'
+    for_d. defs do.
+      t =. 'parameters' mk_tool > d
+      r =. r , ',' , '{"type":"function","function":' , t , '}'
+    end.
   case. 'anthropic' do.
-    NB. Anthropic format: {name,desc,input_schema}
-    items =. > each 'input_schema' mk_tool each defs
+    for_d. defs do.
+      r =. r , ',' , 'input_schema' mk_tool > d
+    end.
   end.
-  NB. join with commas into a JSON array
-  '[' , (_1 }. ; (,&',') each items) , ']'
+  NB. drop leading comma, wrap in array brackets
+  '[' , (}. r) , ']'
 )
 
 NB. ----------------------------------------------------------------
@@ -42,6 +48,7 @@ json_esc =: monad define
   y rplc '\';'\\';'"';'\"';LF;'\n';CR;'\r';TAB;'\t'
 )
 
+NB. ----------------------------------------------------------------
 NB. Build the full request payload as a JSON string
 NB. y = user message string
 build_payload =: monad define
