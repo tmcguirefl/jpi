@@ -1,25 +1,29 @@
-NB. Phase 2: File Reading Tool
+NB. Phase 2: File Reading Tool (revised to use built-in fread)
 NB. read_file.ijs
 
-NB. read_file: reads text file, optional max lines (y = filename; [x = max lines])
-NB. Returns boxed list of lines (empty box on error)
+NB. J already supplies the verb 'fread' which reads an entire file
+NB. as a character string. We wrap it for line-limited and boxed output.
+
+NB. read_file: y = filename, [x = max lines] (default 100)
+NB. Returns boxed list of lines
 read_file =: 3 : 0
   100 read_file y
 :
   max =. x
   try.
-    lines =. 1!:0 < y
-    if. 0 = #lines do. <'' return. end.
-    if. max > #lines do. max =. #lines end.
-    <@,". each max {. lines
+    content =. fread y
+    if. 0 = #content do. <'' return. end.
+    lines =. <;._2 content,LF
+    if. max < #lines do. lines =. max {. lines end.
+    < lines
   catch.
-    <'ERROR: could not read ', y
+    < 'ERROR: could not read ', y
   end.
 )
 
-NB. Convenience wrapper that returns a single string (with newlines)
+NB. Convenience wrapper returning a single string
 read_file_str =: 3 : 0
-  ; read_file y
+  fread y
 )
 
-echo 'Phase 2: read_file loaded.'
+echo 'Phase 2 (revised): read_file loaded.'

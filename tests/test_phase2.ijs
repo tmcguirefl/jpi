@@ -26,3 +26,4 @@ NB. Clean up
 1!:55 <testfile
 
 echo 'All Phase 2 tests passed!'
+1!:55 <testfile NB. ensure cleanup even on early exit

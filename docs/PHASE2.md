@@ -1,15 +1,22 @@
 # Phase 2: File Reading Tool
 
 ## Status
-✅ Completed
+✅ Completed (revised)
+
+## Key Point
+J already provides the library verb `fread` which reads an entire file as a character string.
+We now wrap it cleanly for:
+- line-limited reads
+- boxed line list output
 
 ## Implementation
 - `src/read_file.ijs`
-  - `read_file` – returns boxed list of lines (with optional max lines)
-  - `read_file_str` – convenience wrapper returning a single string
+  - Uses built-in `fread`
+  - `read_file` – returns boxed list of lines (optional max lines)
+  - `read_file_str` – returns full string
 
 ## Testing
-- `tests/test_phase2.ijs` creates a temp file, runs basic/limited/string reads, then cleans up
+- `tests/test_phase2.ijs` uses `fread` indirectly and passes
 
 ## How to run
 ```j
