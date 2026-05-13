@@ -6,10 +6,6 @@ load 'run_cmd.ijs'
 load 'edit_file.ijs'
 load 'write_file.ijs'
 
-NB. Standard J constants for readability
-monad  =: 3
-define =: :0
-
 NB. ----------------------------------------------------------------
 NB. Action verbs (explicit monads using monad define)
 
