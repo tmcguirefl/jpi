@@ -1,0 +1,6 @@
+#!/bin/bash
+# J-PI TUI launcher
+# Sets library path for ncurses on macOS with homebrew
+cd "$(dirname "$0")/src"
+DYLD_LIBRARY_PATH=/opt/homebrew/opt/ncurses/lib:${DYLD_LIBRARY_PATH:-} \
+  /Applications/j9.8/bin/jconsole tui_run.ijs

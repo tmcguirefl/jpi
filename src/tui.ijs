@@ -4,7 +4,8 @@ NB. tui.ijs
 NB. Load the agent first (before ncurses touches anything)
 load 'agent.ijs'
 
-NB. Now load ncurses and put its verbs on the search path
+NB. Load ncurses addon — on macOS use jpi-tui launcher script
+NB. which sets DYLD_LIBRARY_PATH for homebrew ncurses
 require 'api/ncurses'
 coinsert 'ncurses'
 
