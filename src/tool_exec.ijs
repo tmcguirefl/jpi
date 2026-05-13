@@ -3,11 +3,11 @@ NB. tool_exec.ijs
 
 load 'safety.ijs'
 
-NB. Tool name lookup (same pattern as agent.ijs)
+NB. Tool name lookup
 TOOLS =: 'read';'bash';'edit';'write'
 
 NB. Execute a single tool call
-NB. y = tool_name ; input_object (parsed JSON)
+NB. y = tool_name ; input_object (parsed JSON, boxed)
 exec_tool =: monad define
   'name input' =. y
   log 'tool_exec: ' , name
@@ -17,7 +17,14 @@ exec_tool =: monad define
 
 exec_read =: monad define
   path =. > 'path' gethash_json y
-  read_file_str path
+  NB. optional offset and limit parameters
+  offset =. 'offset' gethash_json y
+  limit =. 'limit' gethash_json y
+  if. _1 -: offset do. offset =. 1 end.
+  if. _1 -: limit do. limit =. 2000 end.
+  offset =. > offset
+  limit =. > limit
+  read_file_str path ; offset ; limit
 )
 
 exec_bash =: monad define
@@ -26,7 +33,11 @@ exec_bash =: monad define
     'ERROR: command blocked for safety'
     return.
   end.
-  run_cmd_str cmd
+  NB. optional timeout parameter
+  timeout =. 'timeout' gethash_json y
+  if. _1 -: timeout do. timeout =. DEFAULT_TIMEOUT end.
+  timeout =. > timeout
+  run_cmd_str cmd ; timeout
 )
 
 exec_edit =: monad define
@@ -36,7 +47,7 @@ exec_edit =: monad define
   if. edit_file path ; old ; new do.
     'Edit successful.'
   else.
-    'ERROR: edit failed (text not found).'
+    'ERROR: edit failed (text not found or not unique).'
   end.
 )
 

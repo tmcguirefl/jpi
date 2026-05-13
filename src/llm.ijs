@@ -9,8 +9,8 @@ load 'system_prompt.ijs'
 
 NB. ----------------------------------------------------------------
 NB. Tool parameter schemas
-READ_PARAMS  =: '{"type":"object","properties":{"path":{"type":"string","description":"File path"},"limit":{"type":"number","description":"Max lines"}},"required":["path"]}'
-RUN_PARAMS   =: '{"type":"object","properties":{"command":{"type":"string","description":"Command to run"}},"required":["command"]}'
+READ_PARAMS  =: '{"type":"object","properties":{"path":{"type":"string","description":"File path"},"offset":{"type":"number","description":"Line number to start from (1-indexed)"},"limit":{"type":"number","description":"Max lines to read (default 2000)"}},"required":["path"]}'
+RUN_PARAMS   =: '{"type":"object","properties":{"command":{"type":"string","description":"Bash command to execute"},"timeout":{"type":"number","description":"Timeout in seconds (default 30)"}},"required":["command"]}'
 EDIT_PARAMS  =: '{"type":"object","properties":{"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["path","old_text","new_text"]}'
 WRITE_PARAMS =: '{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}'
 
