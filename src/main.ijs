@@ -17,6 +17,7 @@ run_agent =: monad define
   echo '  save                        - save session to disk'
   echo '  load                        - restore saved session'
   echo '  model [name]                - show/switch model'
+  echo '  usage                       - show token usage'
   echo '  exit                        - quit'
   echo ''
   while. 1 do.

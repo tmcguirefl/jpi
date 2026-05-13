@@ -92,12 +92,16 @@ model_verb =: monad define
   echo 'Model set to: ' , MODEL
 )
 
+usage_verb =: monad define
+  show_usage ''
+)
+
 unknown_verb =: monad define
   echo 'Unknown command: ', y
 )
 
 NB. Boxed action names
-ACTIONS =: 'read';'run';'edit';'write';'ask';'clear';'save';'load';'model'
+ACTIONS =: 'read';'run';'edit';'write';'ask';'clear';'save';'load';'model';'usage'
 
 NB. ----------------------------------------------------------------
 NB. Main agent verb
@@ -106,7 +110,7 @@ agent =: monad define
   cmd =. tolower > {. words
   remainder =. _1 }. ; (,&' ') each }. words
   idx =. ACTIONS i. < cmd
-  (read_verb`run_verb`edit_verb`write_verb`ask_verb`clear_verb`save_verb`load_verb`model_verb`unknown_verb) @. idx remainder
+  (read_verb`run_verb`edit_verb`write_verb`ask_verb`clear_verb`save_verb`load_verb`model_verb`usage_verb`unknown_verb) @. idx remainder
 )
 
 echo 'J-PI agent loaded.'

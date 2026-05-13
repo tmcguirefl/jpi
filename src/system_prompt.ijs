@@ -18,6 +18,16 @@ load_project_context =: monad define
   ''
 )
 
+NB. Get a compact directory listing for context (top-level files only)
+get_dir_listing =: monad define
+  try.
+    listing =. 2!:0 'ls -1 2>/dev/null | head -30'
+    _1 }. listing                  NB. drop trailing newline
+  catch.
+    ''
+  end.
+)
+
 get_system_prompt =: monad define
   cwd =. _1 }. 2!:0 'pwd'          NB. drop trailing newline
   p =. 'You are J-PI, a coding agent built in the J programming language.'
@@ -30,6 +40,11 @@ get_system_prompt =: monad define
   p =. p , ' Current working directory: ' , cwd , '.'
   p =. p , ' Be concise. Use tools when asked to perform file or system operations.'
   p =. p , ' When editing, provide exact text that matches uniquely in the file.'
+  NB. include directory listing
+  listing =. get_dir_listing ''
+  if. 0 < #listing do.
+    p =. p , ' Files in cwd: ' , listing
+  end.
   NB. append project context if available
   ctx =. load_project_context ''
   if. 0 < #ctx do.

@@ -6,6 +6,8 @@ require 'convert/json'
 load 'enc_json_fixed.ijs'
 load 'http.ijs'
 load 'system_prompt.ijs'
+load 'context.ijs'
+load 'usage.ijs'
 
 NB. ----------------------------------------------------------------
 NB. Tool parameter schemas
@@ -67,6 +69,8 @@ mk_msg =: dyad define
 
 NB. Build the full request payload from conversation history
 build_payload =: monad define
+  NB. trim history if approaching context window limit
+  trim_history ''
   tools =. get_tools ''
   NB. system message first, then conversation history
   sys =. 'system' mk_msg SYSTEM_PROMPT
@@ -88,7 +92,10 @@ llm_call =: monad define
   t1 =. 6!:1 ''                    NB. end timer
   elapsed =. t1 - t0
   echo '  [' , (}: ": 0.01 * <. 100 * elapsed) , 's]'
-  dec_json raw
+  parsed =. dec_json raw
+  NB. track token usage from response
+  track_usage parsed
+  parsed
 )
 
 NB. ----------------------------------------------------------------
