@@ -1,4 +1,4 @@
-NB. Phase 6: Agent Framework and Decision Loop
+NB. Phase 6 (final): Agent using standard tolower, boxed strings, and inline agenda
 NB. agent.ijs
 
 load 'read_file.ijs'
@@ -6,29 +6,21 @@ load 'run_cmd.ijs'
 load 'edit_file.ijs'
 load 'write_file.ijs'
 
-NB. Simple keyword parser
-parse_action =: 3 : 0
-  s =. tolower y
-  if. 'read'  +./@E. s do. 'read'  return. end.
-  if. 'run'   +./@E. s do. 'run'   return. end.
-  if. 'edit'  +./@E. s do. 'edit'  return. end.
-  if. 'write' +./@E. s do. 'write' return. end.
-  if. 'ls' +./@E. s do. 'run' return. end.
-  'unknown'
-)
+NB. ----------------------------------------------------------------
+NB. Verb definitions first (so they exist when the agenda line runs)
+read_verb   =: 3 : 'echo ''Reading file...''; read_file_str ''README.md'''
+run_verb    =: 3 : 'echo ''Running command...''; run_cmd_str ''ls'''
+edit_verb   =: 3 : 'echo ''Editing file...'''
+write_verb  =: 3 : 'echo ''Writing file...'''
+unknown_verb =: 3 : 'echo ''Unknown command'''
 
-tolower =: 96&+&.(65&+&-)&.('ABCDEFGHIJKLMNOPQRSTUVWXYZ'&i.)
+NB. Boxed action names (semicolon literal style)
+ACTIONS =: 'read';'run';'edit';'write'
 
-NB. Light-weight agent
-agent =: 3 : 0
-  a =. parse_action y
-  select. a
-  case. 'read'  do. echo 'Reading file...'; read_file_str 'README.md'
-  case. 'run'   do. echo 'Running command...'; run_cmd_str 'ls'
-  case. 'edit'  do. echo 'Editing...'
-  case. 'write' do. echo 'Writing...'
-  case. do. echo 'Unknown action'
-  end.
-)
+NB. Fast lookup (i. uses hash internally)
+get_action_index =: ACTIONS&i.@:(tolower)
 
-echo 'Phase 6: agent loaded.'
+NB. Agent verb – inline agenda @.
+agent =: read_verb`run_verb`edit_verb`write_verb`unknown_verb @. get_action_index
+
+echo 'Phase 6: agent loaded (tolower + boxed strings + inline agenda)'
