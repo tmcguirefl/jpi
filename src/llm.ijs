@@ -5,6 +5,7 @@ NB. dec_json for parsing responses, enc_json_fixed for encoding.
 require 'convert/json'
 load 'enc_json_fixed.ijs'
 load 'http.ijs'
+load 'system_prompt.ijs'
 
 NB. ----------------------------------------------------------------
 NB. Tool parameter schemas
@@ -67,8 +68,10 @@ mk_msg =: dyad define
 NB. Build the full request payload from conversation history
 build_payload =: monad define
   tools =. get_tools ''
-  NB. join all history messages with commas
-  msgs =. _1 }. ; (,&',') each HISTORY
+  NB. system message first, then conversation history
+  sys =. 'system' mk_msg SYSTEM_PROMPT
+  all =. (< sys) , HISTORY
+  msgs =. _1 }. ; (,&',') each all
   '{"model":"' , MODEL , '","max_tokens":4096,"tools":' , tools , ',"messages":[' , msgs , ']}'
 )
 
@@ -155,11 +158,17 @@ process_tool_calls =: monad define
   calls =. get_or_tool_calls y
   results =. 0 $ <''
   for_c. calls do.
-    'tc_id name args' =. parse_or_tool_call > c
-    echo 'Tool call: ' , name
-    NB. box args with < to prevent ; from flattening the 2-row table
-    result =. exec_tool name ; < args
-    echo 'Tool result: ' , 80 {. result
+    try.
+      'tc_id name args' =. parse_or_tool_call > c
+      echo 'Tool call: ' , name
+      NB. box args with < to prevent ; from flattening the 2-row table
+      result =. exec_tool name ; < args
+      echo 'Tool result: ' , 80 {. result
+    catch.
+      tc_id =. 'unknown'
+      result =. 'ERROR: tool execution failed: ' , 13!:12 ''
+      echo result
+    end.
     results =. results , < mk_tool_result tc_id ; result
   end.
   results
@@ -175,28 +184,35 @@ llm_ask =: monad define
   loops =. 0
   while. loops < MAX_TOOL_LOOPS do.
     loops =. loops + 1
-    payload =. build_payload ''
-    resp =. llm_call payload
-    if. 0 = #resp do. '' return. end.
-    if. has_error resp do. show_error resp [ '' return. end.
-    NB. check if LLM wants to call tools
-    if. is_tool_call resp do.
-      NB. add assistant message (with tool_calls) to history
-      NB. use enc_json_fixed to serialize the parsed message object
-      HISTORY =: HISTORY , < enc_json_fixed get_or_message resp
-      NB. execute tools and add results to history
-      results =. process_tool_calls resp
-      HISTORY =: HISTORY , results
-    else.
-      NB. normal text reply — extract, add to history, return
-      reply =. get_or_content resp
-      if. 0 < #reply do.
-        HISTORY =: HISTORY , < 'assistant' mk_msg reply
+    try.
+      payload =. build_payload ''
+      resp =. llm_call payload
+      if. 0 = #resp do.
+        echo 'ERROR: empty response from LLM'
+        '' return.
       end.
-      reply return.
+      if. has_error resp do. show_error resp [ '' return. end.
+      NB. check if LLM wants to call tools
+      if. is_tool_call resp do.
+        NB. add assistant message (with tool_calls) to history
+        HISTORY =: HISTORY , < enc_json_fixed get_or_message resp
+        NB. execute tools and add results to history
+        results =. process_tool_calls resp
+        HISTORY =: HISTORY , results
+      else.
+        NB. normal text reply — extract, add to history, return
+        reply =. get_or_content resp
+        if. 0 < #reply do.
+          HISTORY =: HISTORY , < 'assistant' mk_msg reply
+        end.
+        reply return.
+      end.
+    catch.
+      echo 'ERROR in tool loop: ' , 13!:12 ''
+      '' return.
     end.
   end.
-  echo 'ERROR: too many tool call iterations'
+  echo 'ERROR: too many tool call iterations (' , (":MAX_TOOL_LOOPS) , ')'
   ''
 )
 
