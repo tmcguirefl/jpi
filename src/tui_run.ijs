@@ -1,5 +1,3 @@
-NB. TUI launcher — load and run
-NB. tui_run.ijs
-
+NB. TUI launcher
 load 'tui.ijs'
 tui_run ''
