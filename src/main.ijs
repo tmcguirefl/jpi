@@ -7,7 +7,7 @@ NB. Interactive loop
 run_agent =: monad define
   echo ''
   echo 'J-PI Agent ready.'
-  echo 'Commands: read <file> | run <cmd> | edit | write | ask <question> | exit'
+  echo 'Commands: read <file> | run <cmd> | edit | write | ask <question> | clear | exit'
   echo ''
   while. 1 do.
     input =. 1!:1 ] 1

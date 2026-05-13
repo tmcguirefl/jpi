@@ -44,12 +44,16 @@ ask_verb =: monad define
   echo reply
 )
 
+clear_verb =: monad define
+  clear_history ''
+)
+
 unknown_verb =: monad define
   echo 'Unknown command: ', y
 )
 
 NB. Boxed action names
-ACTIONS =: 'read';'run';'edit';'write';'ask'
+ACTIONS =: 'read';'run';'edit';'write';'ask';'clear'
 
 NB. ----------------------------------------------------------------
 NB. Main agent verb
@@ -58,7 +62,7 @@ agent =: monad define
   cmd =. tolower > {. words
   remainder =. _1 }. ; (,&' ') each }. words
   idx =. ACTIONS i. < cmd
-  (read_verb`run_verb`edit_verb`write_verb`ask_verb`unknown_verb) @. idx remainder
+  (read_verb`run_verb`edit_verb`write_verb`ask_verb`clear_verb`unknown_verb) @. idx remainder
 )
 
 echo 'J-PI agent loaded.'

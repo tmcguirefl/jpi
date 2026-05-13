@@ -49,12 +49,28 @@ json_esc =: monad define
 )
 
 NB. ----------------------------------------------------------------
-NB. Build the full request payload as a JSON string
-NB. y = user message string
+NB. Conversation history: boxed list of JSON message strings
+HISTORY =: 0 $ <''
+
+NB. Reset conversation
+clear_history =: monad define
+  HISTORY =: 0 $ <''
+  echo 'Conversation cleared.'
+)
+
+NB. Build a JSON message string for a role/content pair
+mk_msg =: dyad define
+  NB. x = role, y = content
+  '{"role":"' , x , '","content":"' , (json_esc y) , '"}'
+)
+
+NB. Build the full request payload from conversation history
+NB. y is ignored (history is in HISTORY)
 build_payload =: monad define
   tools =. get_tools ''
-  msg =. '{"role":"user","content":"' , (json_esc y) , '"}'
-  '{"model":"' , MODEL , '","max_tokens":4096,"tools":' , tools , ',"messages":[' , msg , ']}'
+  NB. join all messages in HISTORY with commas
+  msgs =. _1 }. ; (,&',') each HISTORY
+  '{"model":"' , MODEL , '","max_tokens":4096,"tools":' , tools , ',"messages":[' , msgs , ']}'
 )
 
 NB. ----------------------------------------------------------------
@@ -93,12 +109,21 @@ extract_reply =: monad define
 )
 
 NB. ----------------------------------------------------------------
-NB. Simple single-turn ask: y = question string
+NB. Multi-turn ask: y = question string
+NB. Appends user message to history, sends full history, appends reply
 llm_ask =: monad define
-  payload =. build_payload y
+  NB. add user message to history
+  HISTORY =: HISTORY , < 'user' mk_msg y
+  NB. send full conversation
+  payload =. build_payload ''
   resp =. llm_call payload
   if. 0 = #resp do. '' return. end.
-  extract_reply resp
+  reply =. extract_reply resp
+  NB. add assistant reply to history
+  if. 0 < #reply do.
+    HISTORY =: HISTORY , < 'assistant' mk_msg reply
+  end.
+  reply
 )
 
 echo 'llm loaded. Provider: ' , PROVIDER
