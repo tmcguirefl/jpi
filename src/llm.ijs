@@ -1,50 +1,49 @@
 NB. LLM integration (OpenRouter / Anthropic)
 NB. llm.ijs
 
-load 'json_utils.ijs'
+require 'convert/json'
 load 'http.ijs'
 
 NB. ----------------------------------------------------------------
+NB. JSON schema strings for tool parameters
+READ_SCHEMA  =: '{"type":"object","properties":{"path":{"type":"string","description":"File path"},"limit":{"type":"number","description":"Max lines"}},"required":["path"]}'
+RUN_SCHEMA   =: '{"type":"object","properties":{"command":{"type":"string","description":"Command to run"}},"required":["command"]}'
+EDIT_SCHEMA  =: '{"type":"object","properties":{"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["path","old_text","new_text"]}'
+WRITE_SCHEMA =: '{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}'
+
+NB. ----------------------------------------------------------------
 NB. Tool definitions for OpenRouter (OpenAI format)
+NB. Each tool is a 2-row boxed table: row 0 = keys, row 1 = values
 TOOLS_OPENROUTER =: monad define
-  mk =. monad : 'jmerge (jkv ''type'';''function'') ; (jkv ''function''; y)'
-  read_f =. jmerge (jkv 'name';'read') ; (jkv 'description';'Read file contents') ; (jkv 'parameters' ; dec_json '{"type":"object","properties":{"path":{"type":"string","description":"File path"},"limit":{"type":"number","description":"Max lines"}},"required":["path"]}')
-  run_f =. jmerge (jkv 'name';'bash') ; (jkv 'description';'Execute shell command') ; (jkv 'parameters' ; dec_json '{"type":"object","properties":{"command":{"type":"string","description":"Command to run"}},"required":["command"]}')
-  edit_f =. jmerge (jkv 'name';'edit') ; (jkv 'description';'Edit file with find/replace') ; (jkv 'parameters' ; dec_json '{"type":"object","properties":{"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["path","old_text","new_text"]}')
-  write_f =. jmerge (jkv 'name';'write') ; (jkv 'description';'Write content to file') ; (jkv 'parameters' ; dec_json '{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}')
-  (mk read_f) ; (mk run_f) ; (mk edit_f) ; (mk write_f)
+  NB. function objects: name;description;parameters as 2-row tables
+  read_f  =. ('name';'description';'parameters') ,: 'read';'Read file contents';(dec_json READ_SCHEMA)
+  run_f   =. ('name';'description';'parameters') ,: 'bash';'Execute shell command';(dec_json RUN_SCHEMA)
+  edit_f  =. ('name';'description';'parameters') ,: 'edit';'Edit file with find/replace';(dec_json EDIT_SCHEMA)
+  write_f =. ('name';'description';'parameters') ,: 'write';'Write content to file';(dec_json WRITE_SCHEMA)
+  NB. wrap each in {type:function, function:...}
+  wrap =. monad : '(''type'';''function'') ,: ''function''; y'
+  (wrap read_f) ; (wrap run_f) ; (wrap edit_f) ; (wrap write_f)
 )
 
 NB. Tool definitions for Anthropic format
 TOOLS_ANTHROPIC =: monad define
-  read_t =. jmerge (jkv 'name';'read') ; (jkv 'description';'Read file contents') ; (jkv 'input_schema' ; dec_json '{"type":"object","properties":{"path":{"type":"string","description":"File path"},"limit":{"type":"number","description":"Max lines"}},"required":["path"]}')
-  run_t =. jmerge (jkv 'name';'bash') ; (jkv 'description';'Execute shell command') ; (jkv 'input_schema' ; dec_json '{"type":"object","properties":{"command":{"type":"string","description":"Command to run"}},"required":["command"]}')
-  edit_t =. jmerge (jkv 'name';'edit') ; (jkv 'description';'Edit file with find/replace') ; (jkv 'input_schema' ; dec_json '{"type":"object","properties":{"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["path","old_text","new_text"]}')
-  write_t =. jmerge (jkv 'name';'write') ; (jkv 'description';'Write content to file') ; (jkv 'input_schema' ; dec_json '{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}')
+  read_t  =. ('name';'description';'input_schema') ,: 'read';'Read file contents';(dec_json READ_SCHEMA)
+  run_t   =. ('name';'description';'input_schema') ,: 'bash';'Execute shell command';(dec_json RUN_SCHEMA)
+  edit_t  =. ('name';'description';'input_schema') ,: 'edit';'Edit file with find/replace';(dec_json EDIT_SCHEMA)
+  write_t =. ('name';'description';'input_schema') ,: 'write';'Write content to file';(dec_json WRITE_SCHEMA)
   read_t ; run_t ; edit_t ; write_t
 )
 
 NB. ----------------------------------------------------------------
 NB. Build payload based on provider
 build_payload =: monad define
-  NB. y = boxed list of message objects
-  msgs =. enc_json y
+  NB. y = boxed list of message objects (2-row tables)
   select. PROVIDER
-  case. 'openrouter' do.
-    tools =. enc_json TOOLS_OPENROUTER ''
-    payload =. '{"model":"' , MODEL , '"'
-    payload =. payload , ',"max_tokens":4096'
-    payload =. payload , ',"tools":' , tools
-    payload =. payload , ',"messages":' , msgs
-    payload =. payload , '}'
-  case. 'anthropic' do.
-    tools =. enc_json TOOLS_ANTHROPIC ''
-    payload =. '{"model":"' , MODEL , '"'
-    payload =. payload , ',"max_tokens":4096'
-    payload =. payload , ',"tools":' , tools
-    payload =. payload , ',"messages":' , msgs
-    payload =. payload , '}'
+  case. 'openrouter' do. tools =. enc_json TOOLS_OPENROUTER ''
+  case. 'anthropic'  do. tools =. enc_json TOOLS_ANTHROPIC ''
   end.
+  msgs =. enc_json y
+  '{"model":"' , MODEL , '","max_tokens":4096,"tools":' , tools , ',"messages":' , msgs , '}'
 )
 
 NB. ----------------------------------------------------------------
@@ -62,7 +61,6 @@ llm_call =: monad define
 NB. ----------------------------------------------------------------
 NB. Extract text content from response (provider-aware)
 extract_reply =: monad define
-  NB. y = parsed JSON response
   select. PROVIDER
   case. 'openrouter' do.
     NB. OpenAI format: choices[0].message.content
@@ -72,15 +70,15 @@ extract_reply =: monad define
   case. 'anthropic' do.
     NB. Anthropic format: content[0].text
     content =. > 'content' gethash_json y
-    first =. > {. content
-    > 'text' gethash_json first
+    > 'text' gethash_json > {. content
   end.
 )
 
 NB. ----------------------------------------------------------------
 NB. Simple single-turn ask
 llm_ask =: monad define
-  msg =. jmerge (jkv 'role';'user') ; (jkv 'content'; y)
+  NB. build a user message as 2-row table and send
+  msg =. ('role';'content') ,: 'user'; y
   payload =. build_payload ,< msg
   resp =. llm_call payload
   if. 0 = #resp do. '' return. end.

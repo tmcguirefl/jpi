@@ -2,7 +2,6 @@
 
 ## New Components
 - `src/config.ijs` — loads API key from `ANTHROPIC_API_KEY` env var
-- `src/json_utils.ijs` — loads J's `convert/json` addon, adds `jkv`/`jmerge` helpers
 - `src/http.ijs` — curl-based HTTP POST for JSON APIs
 - `src/llm.ijs` — Claude API integration (tool definitions, payload building, `llm_ask`)
 - `src/tool_exec.ijs` — executes tool calls from LLM responses using `gethash_json`

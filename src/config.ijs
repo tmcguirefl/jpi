@@ -21,6 +21,6 @@ API_KEY =: monad define
     if. 0 < #key do. key return. end.
   catch. end.
   ''
-) ''
+) 
 
 echo 'config loaded. Provider: ' , PROVIDER , '  API_KEY length: ' , ": #API_KEY
