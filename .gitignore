@@ -1,0 +1,11 @@
+# J language backups and temps
+*.ijs~
+*~
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Temporary / output files
+*.tmp
+*.log
