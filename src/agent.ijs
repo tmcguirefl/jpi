@@ -17,7 +17,7 @@ NB. Direct-mode action verbs (no LLM needed)
 
 read_verb =: monad define
   echo 'Reading: ', y
-  read_file_str y
+  echo read_file_str y
 )
 
 run_verb =: monad define
@@ -27,7 +27,7 @@ run_verb =: monad define
     return.
   end.
   echo 'Running: ', y
-  run_cmd_str y
+  echo run_cmd_str y
 )
 
 NB. edit <file> <old> <new>  (use quotes if text has spaces)
