@@ -18,6 +18,9 @@ run_agent =: monad define
   echo '  load                        - restore saved session'
   echo '  model [name]                - show/switch model'
   echo '  usage                       - show token usage'
+  echo '  git [cmd]                   - git status or pass-through'
+  echo '  grep <pattern> [path]       - search files for pattern'
+  echo '  find <args>                 - find files'
   echo '  exit                        - quit'
   echo ''
   while. 1 do.

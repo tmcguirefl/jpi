@@ -2,6 +2,7 @@ NB. Tool executor - handles LLM tool-call responses
 NB. tool_exec.ijs
 
 load 'safety.ijs'
+load 'confirm.ijs'
 
 NB. Tool name lookup
 TOOLS =: 'read';'bash';'edit';'write'
@@ -42,6 +43,9 @@ exec_bash =: monad define
 
 exec_edit =: monad define
   path =. > 'path' gethash_json y
+  if. -. confirm_edit path do.
+    'Cancelled by user.' return.
+  end.
   old =. > 'old_text' gethash_json y
   new =. > 'new_text' gethash_json y
   if. edit_file path ; old ; new do.
@@ -53,6 +57,9 @@ exec_edit =: monad define
 
 exec_write =: monad define
   path =. > 'path' gethash_json y
+  if. -. confirm_write path do.
+    'Cancelled by user.' return.
+  end.
   content =. > 'content' gethash_json y
   if. write_file path ; content do.
     'Write successful.'

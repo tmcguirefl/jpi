@@ -96,12 +96,32 @@ usage_verb =: monad define
   show_usage ''
 )
 
+git_verb =: monad define
+  if. 0 = #y do.
+    NB. show git summary
+    if. -. is_git_repo '' do. echo 'Not a git repo.' return. end.
+    echo 'Branch: ' , git_branch ''
+    echo git_status ''
+  else.
+    NB. pass through to git command
+    echo run_cmd_str 'git ' , y
+  end.
+)
+
+grep_verb =: monad define
+  echo run_cmd_str 'grep -rn ' , y
+)
+
+find_verb =: monad define
+  echo run_cmd_str 'find ' , y
+)
+
 unknown_verb =: monad define
   echo 'Unknown command: ', y
 )
 
 NB. Boxed action names
-ACTIONS =: 'read';'run';'edit';'write';'ask';'clear';'save';'load';'model';'usage'
+ACTIONS =: 'read';'run';'edit';'write';'ask';'clear';'save';'load';'model';'usage';'git';'grep';'find'
 
 NB. ----------------------------------------------------------------
 NB. Main agent verb
@@ -110,7 +130,7 @@ agent =: monad define
   cmd =. tolower > {. words
   remainder =. _1 }. ; (,&' ') each }. words
   idx =. ACTIONS i. < cmd
-  (read_verb`run_verb`edit_verb`write_verb`ask_verb`clear_verb`save_verb`load_verb`model_verb`usage_verb`unknown_verb) @. idx remainder
+  (read_verb`run_verb`edit_verb`write_verb`ask_verb`clear_verb`save_verb`load_verb`model_verb`usage_verb`git_verb`grep_verb`find_verb`unknown_verb) @. idx remainder
 )
 
 echo 'J-PI agent loaded.'

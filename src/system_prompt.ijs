@@ -1,6 +1,8 @@
 NB. System prompt for the LLM
 NB. system_prompt.ijs
 
+load 'git.ijs'
+
 NB. Project context filename (like CLAUDE.md for pi)
 PROJECT_CONTEXT_FILE =: 'JPILOT.md'
 
@@ -45,6 +47,9 @@ get_system_prompt =: monad define
   if. 0 < #listing do.
     p =. p , ' Files in cwd: ' , listing
   end.
+  NB. append git context if in a repo
+  gc =. git_context ''
+  if. 0 < #gc do. p =. p , gc end.
   NB. append project context if available
   ctx =. load_project_context ''
   if. 0 < #ctx do.
