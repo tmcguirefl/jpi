@@ -1,8 +1,15 @@
 NB. J-PI TUI — ncurses-based terminal interface
 NB. tui.ijs
 
+NB. Save J's echo before loading ncurses (ncurses has its own 'echo' verb)
+j_echo =: echo
+
 require 'api/ncurses'
 coinsert 'ncurses'
+
+NB. Restore J's echo — ncurses 'echo' (terminal echo mode) shadows it
+echo =: j_echo
+NB. Use noecho_ncurses_ if we need ncurses echo control
 
 NB. Load the agent
 load 'agent.ijs'
@@ -37,7 +44,7 @@ tui_init =: monad define
   stdscr =: initscr ''
   if. 0 = stdscr do. echo 'ERROR: ncurses init failed' return. end.
   cbreak ''
-  noecho ''
+  noecho_ncurses_ ''            NB. use ncurses locale version explicitly
   keypad stdscr , 1                NB. enable arrow keys etc.
   start_color ''
   NB. color pairs: fg, bg
@@ -128,9 +135,7 @@ tui_draw_input =: monad define
 )
 
 NB. ================================================================
-NB. Override echo to route output through TUI
-NB. Save original echo and replace
-orig_echo =: echo
+NB. Override J's echo to route output through TUI windows
 echo =: monad define
   NB. split by LF and print each line
   lines =. <;._2 y , LF -. {: y , LF
