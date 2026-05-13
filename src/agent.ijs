@@ -10,35 +10,39 @@ NB. ----------------------------------------------------------------
 NB. Action verbs (explicit monads using monad define)
 
 read_verb =: monad define
-  echo 'Reading file...'
-  read_file_str 'README.md'
+  echo 'Reading: ', y
+  read_file_str y
 )
 
 run_verb =: monad define
-  echo 'Running command...'
-  run_cmd_str 'ls'
+  echo 'Running: ', y
+  run_cmd_str y
 )
 
 edit_verb =: monad define
-  echo 'Editing file...'
+  echo 'Edit: ', y
 )
 
 write_verb =: monad define
-  echo 'Writing file...'
+  echo 'Write: ', y
 )
 
 unknown_verb =: monad define
-  echo 'Unknown command'
+  echo 'Unknown command: ', y
 )
 
 NB. Boxed action names (semicolon literal style)
 ACTIONS =: 'read';'run';'edit';'write'
 
 NB. ----------------------------------------------------------------
-NB. Main agent verb - i. lookup inline (common J idiom)
+NB. Main agent verb
+NB. cutopen boxes words by whitespace, {. takes command, }. takes args
 agent =: monad define
-  idx =. ACTIONS i. < tolower y
-  (read_verb`run_verb`edit_verb`write_verb`unknown_verb) @. idx y
+  words =. cutopen y
+  cmd =. tolower > {. words          NB. first word (unboxed, lowered)
+  remainder =. }. ; ' '&,&.> }. words  NB. drop cmd, rejoin rest with spaces
+  idx =. ACTIONS i. < cmd
+  (read_verb`run_verb`edit_verb`write_verb`unknown_verb) @. idx remainder
 )
 
 echo 'Phase 6: agent loaded (explicit monad + monad define + boxed agenda)'
