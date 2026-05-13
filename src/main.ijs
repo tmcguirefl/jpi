@@ -1,19 +1,16 @@
-NB. J-PI Agent - Phase 1: Basic Setup and Echo Loop
+NB. J-PI Agent - Main entry point
 NB. main.ijs
 
-echo 'J-PI Agent initialized.'
+load 'agent.ijs'
 
-NB. Simple interactive loop (simulated for now)
-NB. In a real J session, use wd or user input mechanisms.
-run_agent =: 3 : 0
-  echo 'Agent loop started. Type "exit" to quit.'
+NB. Interactive loop: reads from stdin, dispatches to agent
+run_agent =: monad define
+  echo 'J-PI Agent ready. Type a command or "exit" to quit.'
   while. 1 do.
-    input =: 1!:1 ] 1   NB. Read from stdin (keyboard)
+    input =. 1!:1 ] 1
     if. input -: 'exit' do. break. end.
-    echo 'Echo: ', input
+    if. 0 = #input do. continue. end.
+    agent input
   end.
-  echo 'Agent stopped.'
+  echo 'J-PI Agent stopped.'
 )
-
-NB. Run the agent when this script is loaded
-run_agent ''

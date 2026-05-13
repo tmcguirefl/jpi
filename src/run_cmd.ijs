@@ -1,21 +1,18 @@
 NB. Phase 3: Command Execution Tool
 NB. run_cmd.ijs
 
-NB. run_cmd: execute shell command (y = command string)
-NB. Returns boxed result: success=0; result=1 or (boxed output)
-NB. Uses 2!:0 (host command foreign)
-run_cmd =: 3 : 0
+NB. run_cmd: execute shell command, returns boxed output
+run_cmd =: monad define
   try.
-    out =. 2!:0 y
-    < out
+    < 2!:0 y
   catch.
     < 'ERROR: command failed: ', y
   end.
 )
 
-NB. Convenience: run and return raw string (empty on error)
-run_cmd_str =: 3 : 0
+NB. run_cmd_str: returns raw string (empty on error)
+run_cmd_str =: monad define
   try. 2!:0 y catch. '' end.
 )
 
-echo 'Phase 3: run_cmd loaded.'
+echo 'run_cmd loaded.'
