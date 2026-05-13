@@ -72,6 +72,13 @@ llm_call =: monad define
 NB. ----------------------------------------------------------------
 NB. Extract text content from parsed response (provider-aware)
 extract_reply =: monad define
+  NB. check for API error response
+  if. _1 -.@-: 'error' gethash_json y do.
+    err =. > 'error' gethash_json y
+    msg =. > 'message' gethash_json err
+    echo 'API error: ' , msg
+    '' return.
+  end.
   select. PROVIDER
   case. 'openrouter' do.
     NB. OpenAI format: choices[0].message.content
