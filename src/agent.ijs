@@ -36,11 +36,11 @@ ACTIONS =: 'read';'run';'edit';'write'
 
 NB. ----------------------------------------------------------------
 NB. Main agent verb
-NB. cutopen boxes words by whitespace, {. takes command, }. takes args
+NB. chopstring boxes words, {. takes command, }. takes remainder
 agent =: monad define
-  words =. cutopen y
-  cmd =. tolower > {. words          NB. first word (unboxed, lowered)
-  remainder =. }. ; ' '&,&.> }. words  NB. drop cmd, rejoin rest with spaces
+  words =. chopstring y
+  cmd =. tolower > {. words              NB. first word (unboxed, lowered)
+  remainder =. _1 }. ; (,&' ') each }. words  NB. rejoin rest, drop trailing space
   idx =. ACTIONS i. < cmd
   (read_verb`run_verb`edit_verb`write_verb`unknown_verb) @. idx remainder
 )
