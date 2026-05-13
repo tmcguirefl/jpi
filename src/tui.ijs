@@ -1,18 +1,16 @@
 NB. J-PI TUI — ncurses-based terminal interface
 NB. tui.ijs
 
-NB. Save J's echo before loading ncurses (ncurses has its own 'echo' verb)
-j_echo =: echo
+NB. Load the agent first (before ncurses touches anything)
+load 'agent.ijs'
 
+NB. Now load ncurses and put its verbs on the search path
 require 'api/ncurses'
 coinsert 'ncurses'
 
-NB. Restore J's echo — ncurses 'echo' (terminal echo mode) shadows it
-echo =: j_echo
-NB. Use noecho_ncurses_ if we need ncurses echo control
-
-NB. Load the agent
-load 'agent.ijs'
+NB. ncurses defines 'echo' (C function for terminal echo mode)
+NB. which shadows J's echo. Redefine echo as a simple output verb.
+echo =: 0 0 $ 1!:2&2
 
 NB. ================================================================
 NB. TUI state
@@ -42,10 +40,10 @@ NB. ================================================================
 NB. Initialize ncurses and create windows
 tui_init =: monad define
   stdscr =: initscr ''
-  if. 0 = stdscr do. echo 'ERROR: ncurses init failed' return. end.
+  if. 0 = stdscr do. 1!:2&2 'ERROR: ncurses init failed' return. end.
   cbreak ''
-  noecho_ncurses_ ''            NB. use ncurses locale version explicitly
-  keypad stdscr , 1                NB. enable arrow keys etc.
+  noecho_ncurses_ ''            NB. ncurses noecho (not J's echo)
+  keypad stdscr , 1             NB. enable arrow keys etc.
   start_color ''
   NB. color pairs: fg, bg
   init_pair CP_NORMAL , COLOR_WHITE , COLOR_BLACK
@@ -65,8 +63,7 @@ tui_resize =: monad define
   if. win_output ~: 0 do. delwin win_output end.
   if. win_status ~: 0 do. delwin win_status end.
   if. win_input ~: 0 do. delwin win_input end.
-  NB. get current size from stdscr
-  NB. use tput since getmaxy/getmaxx are macros
+  NB. get current size via tput
   TUI_LINES =: ". _1 }. 2!:0 'tput lines'
   TUI_COLS  =: ". _1 }. 2!:0 'tput cols'
   NB. layout: output gets most space, status bar 1 line, input 1 line
@@ -82,13 +79,12 @@ tui_resize =: monad define
 )
 
 NB. ================================================================
-NB. Add a line to the output buffer and display it
+NB. Add a line to the output window
 NB. x = color pair (default CP_NORMAL), y = text string
 tui_print =: verb define
   CP_NORMAL tui_print y
 :
   TUI_OUTPUT =: TUI_OUTPUT , < y
-  NB. add to output window
   wattr_on win_output , (COLOR_PAIR x) , 0
   waddnstr win_output ; y ; TUI_COLS - 1
   waddch win_output , 10    NB. newline
@@ -135,7 +131,8 @@ tui_draw_input =: monad define
 )
 
 NB. ================================================================
-NB. Override J's echo to route output through TUI windows
+NB. Override echo to route through TUI windows
+NB. This replaces the ncurses 'echo' that coinsert brought in
 echo =: monad define
   NB. split by LF and print each line
   lines =. <;._2 y , LF -. {: y , LF
@@ -173,7 +170,7 @@ tui_process =: monad define
 )
 
 NB. ================================================================
-NB. Main TUI loop — read keys, build input, dispatch commands
+NB. Main TUI loop
 tui_run =: monad define
   tui_init ''
   NB. welcome message
