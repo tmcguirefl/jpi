@@ -1,9 +1,9 @@
 NB. LLM integration (OpenRouter / Anthropic)
 NB. llm.ijs
-NB. Outbound JSON built as strings (avoids enc_json shape issues).
-NB. dec_json / gethash_json used only for parsing inbound responses.
+NB. dec_json for parsing responses, enc_json_fixed for encoding.
 
 require 'convert/json'
+load 'enc_json_fixed.ijs'
 load 'http.ijs'
 
 NB. ----------------------------------------------------------------
@@ -67,6 +67,7 @@ mk_msg =: dyad define
 NB. Build the full request payload from conversation history
 build_payload =: monad define
   tools =. get_tools ''
+  NB. join all history messages with commas
   msgs =. _1 }. ; (,&',') each HISTORY
   '{"model":"' , MODEL , '","max_tokens":4096,"tools":' , tools , ',"messages":[' , msgs , ']}'
 )
@@ -114,7 +115,6 @@ get_or_finish =: monad define
 NB. Check if response contains tool calls
 is_tool_call =: monad define
   finish =. get_or_finish y
-  NB. OpenAI uses 'tool_calls' as finish_reason
   finish -: 'tool_calls'
 )
 
@@ -137,28 +137,8 @@ parse_or_tool_call =: monad define
   name =. > 'name' gethash_json func
   args_str =. > 'arguments' gethash_json func
   args =. dec_json args_str
-  tc_id ; name ; args
-)
-
-NB. Extract the assistant message JSON from raw API response string
-NB. Finds "message":{...} in the raw response and extracts the object
-extract_raw_message =: monad define
-  NB. y = raw JSON response string
-  NB. find '"message":' and extract the balanced braces after it
-  idx =. I. '"message":' E. y
-  if. 0 = #idx do. '{}' return. end.
-  start =. ({. idx) + 10              NB. skip past '"message":'
-  NB. count balanced braces to find end
-  depth =. 0
-  pos =. start
-  while. pos < #y do.
-    ch =. pos { y
-    if. ch = '{' do. depth =. depth + 1 end.
-    if. ch = '}' do. depth =. depth - 1 end.
-    if. (depth = 0) *. (pos > start) do. break. end.
-    pos =. pos + 1
-  end.
-  (pos - start + 1) {. start }. y
+  NB. box args with < to prevent flattening (args is a 2-row table)
+  tc_id ; name ; < args
 )
 
 NB. Build a tool result message
@@ -177,7 +157,8 @@ process_tool_calls =: monad define
   for_c. calls do.
     'tc_id name args' =. parse_or_tool_call > c
     echo 'Tool call: ' , name
-    result =. exec_tool name ; args
+    NB. box args with < to prevent ; from flattening the 2-row table
+    result =. exec_tool name ; < args
     echo 'Tool result: ' , 80 {. result
     results =. results , < mk_tool_result tc_id ; result
   end.
@@ -201,10 +182,8 @@ llm_ask =: monad define
     NB. check if LLM wants to call tools
     if. is_tool_call resp do.
       NB. add assistant message (with tool_calls) to history
-      NB. extract raw message JSON from API response to avoid enc_json
-      raw =. fread HTTP_TMPFILE
-      asst_msg =. extract_raw_message raw
-      HISTORY =: HISTORY , < asst_msg
+      NB. use enc_json_fixed to serialize the parsed message object
+      HISTORY =: HISTORY , < enc_json_fixed get_or_message resp
       NB. execute tools and add results to history
       results =. process_tool_calls resp
       HISTORY =: HISTORY , results
