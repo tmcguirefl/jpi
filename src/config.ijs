@@ -14,13 +14,14 @@ API_URL =: > (<(({."1 API_URLS) i. <PROVIDER), 1) { API_URLS
 MODEL   =: > (<(({."1 MODELS)   i. <PROVIDER), 1) { MODELS
 
 NB. Load API key from environment
-API_KEY =: monad define
+get_api_key =: monad define
   env =. > (<(({."1 ENV_KEYS) i. <PROVIDER), 1) { ENV_KEYS
   try.
     key =. 2!:5 env
     if. 0 < #key do. key return. end.
   catch. end.
   ''
-) ''
+)
+API_KEY =: get_api_key ''
 
 echo 'config loaded. Provider: ' , PROVIDER , '  API_KEY length: ' , ": #API_KEY
