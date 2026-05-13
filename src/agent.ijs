@@ -38,9 +38,10 @@ write_verb =: monad define
 )
 
 ask_verb =: monad define
-  echo 'Asking LLM: ', y
-  resp =. llm_ask y
-  echo enc_json resp
+  echo 'Asking LLM...'
+  log 'ask: ', y
+  reply =. llm_ask y
+  echo reply
 )
 
 unknown_verb =: monad define

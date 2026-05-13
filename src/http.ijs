@@ -9,8 +9,13 @@ http_post =: dyad define
   body =. y
   cmd =. 'curl -s -X POST'
   cmd =. cmd , ' -H "Content-Type: application/json"'
-  cmd =. cmd , ' -H "x-api-key: ' , API_KEY , '"'
-  cmd =. cmd , ' -H "anthropic-version: 2023-06-01"'
+  select. PROVIDER
+  case. 'openrouter' do.
+    cmd =. cmd , ' -H "Authorization: Bearer ' , API_KEY , '"'
+  case. 'anthropic' do.
+    cmd =. cmd , ' -H "x-api-key: ' , API_KEY , '"'
+    cmd =. cmd , ' -H "anthropic-version: 2023-06-01"'
+  end.
   cmd =. cmd , ' -d ' , (quote body)
   cmd =. cmd , ' ' , url
   2!:0 cmd
