@@ -96,7 +96,7 @@ tui_bgc =: monad define
 
 NB. curs: show(1)/hide(0) cursor
 tui_curs =: monad define
-  tui_write CSI , '?25' , (y{'lh') ,~ ]
+  tui_write CSI , '?25' , (y{'lh')
 )
 
 NB. ================================================================
