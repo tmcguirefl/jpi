@@ -1,15 +1,15 @@
 NB. J-PI TUI — j-kvm based terminal interface (no ncurses)
 NB. tui2.ijs
 NB.
-NB. Uses tangentstorm/j-kvm for direct ANSI terminal control.
-NB. No ncurses dependency. Direct vt escape code output.
+NB. Uses tangentstorm/j-kvm/vt for direct ANSI terminal control.
+NB. Own simple event loop — no kvm loop adverb complexity.
+NB. No ncurses dependency.
 
 NB. Load the agent first (all echo output goes to normal stdout)
 load 'agent.ijs'
 
-NB. Load j-kvm (full package: vt + vid + kvm event loop)
-require 'tangentstorm/j-kvm'
-coinsert 'kvm'
+NB. Load j-kvm vt (ANSI escape codes + raw input)
+require 'tangentstorm/j-kvm/vt'
 load 'theme.ijs'
 
 NB. ================================================================
@@ -22,6 +22,7 @@ TUI_INPUT  =: ''
 TUI_CURSOR =: 0
 TUI_HISTORY_IDX =: 0
 TUI_INPUT_HISTORY =: 0 $ <''
+TUI_RUNNING =: 1
 
 NB. Layout
 STATUS_H =: 1
@@ -29,10 +30,6 @@ INPUT_H  =: 1
 
 NB. ================================================================
 NB. Theme color helpers
-NB. ncurses 0-7 colors map to same 256-color indices
-NB. j-kvm fgc/bgc take 256-color index (neg) or 24-bit (pos)
-
-NB. Apply fg/bg from theme element name — writes ANSI codes directly
 theme_apply =: monad define
   'fg bg' =. theme_colors y
   fgc_vt_ fg
@@ -49,11 +46,12 @@ tui_init =: monad define
 )
 
 NB. ================================================================
-NB. Handle terminal resize
-tui_resize =: monad define
-  'TUI_LINES TUI_COLS' =. gethw_vt_''
-  cscr_vt_''
-  tui_redraw_all ''
+NB. Restore terminal on exit (critical!)
+tui_cleanup =: monad define
+  curs_vt_ 1
+  raw_vt_ 0
+  reset_vt_''
+  puts_vt_ CR,LF
 )
 
 NB. ================================================================
@@ -69,9 +67,18 @@ wrap_line =: dyad define
 )
 
 NB. ================================================================
-NB. Draw the complete screen from TUI_OUTPUT
-tui_redraw_all =: monad define
-  cscr_vt_''
+NB. Draw a single line at a specific row, clearing it first
+NB. x = (col, row), y = text
+tui_draw_line =: dyad define
+  'col row' =. x
+  goxy_vt_ col , row
+  ceol_vt_''
+  puts_vt_ y
+)
+
+NB. ================================================================
+NB. Draw the complete screen
+tui_redraw =: monad define
   out_h =. TUI_LINES - STATUS_H + INPUT_H
   total =. #TUI_OUTPUT
   
@@ -84,14 +91,18 @@ tui_redraw_all =: monad define
   end.
   visible =. out_h {. start }. TUI_OUTPUT
   
-  NB. Draw output lines (CR+LF in raw mode — LF alone won't carriage-return)
+  NB. Draw each output line at its row — use goxy, never rely on cursor advancement
   reset_vt_''
-  for_l. visible do.
-    puts_vt_ > l
-    puts_vt_ CR,LF
+  for_i. i. #visible do.
+    (0 , i) tui_draw_line > i { visible
   end.
   
-  NB. Draw status bar
+  NB. Clear remaining output rows
+  for_i. (#visible) + i. out_h - #visible do.
+    (0 , i) tui_draw_line ''
+  end.
+  
+  NB. Draw status bar at row out_h
   goxy_vt_ 0 , out_h
   theme_apply 'status'
   left =. ' J-PI | ' , MODEL
@@ -106,31 +117,32 @@ tui_redraw_all =: monad define
   right =. right , ' | ' , (": #HISTORY) , ' msgs '
   pad =. (TUI_COLS - (#left) + #right) # ' '
   puts_vt_ left , pad , right
+  NB. fill remainder of status row
+  remains =. TUI_COLS - #left - #pad - #right
+  if. remains > 0 do. puts_vt_ remains # ' ' end.
   
-  NB. Draw input line
+  NB. Draw input line at row (out_h + STATUS_H)
   goxy_vt_ 0 , (out_h + STATUS_H)
   reset_vt_''
   theme_apply 'prompt'
   puts_vt_ '> '
   reset_vt_''
   puts_vt_ TUI_INPUT
+  ceol_vt_''                              NB. clear after input text
   
-  NB. Position cursor
+  NB. Position cursor in input line
   goxy_vt_ (2 + TUI_CURSOR) , (out_h + STATUS_H)
   curs_vt_ 1
 )
 
 NB. ================================================================
-NB. Add a line to the output buffer and redraw
+NB. Add a line to the output buffer
 NB. x = theme element name (default 'normal'), y = text string
 tui_print =: verb define
   'normal' tui_print y
 :
   wrapped =. (TUI_COLS - 1) wrap_line y
   TUI_OUTPUT =: TUI_OUTPUT , wrapped
-  NB. If following mode, snap to bottom
-  if. TUI_SCROLL = _1 do. EMPTY return. end.
-  TUI_SCROLL =: _1
   EMPTY
 )
 
@@ -176,159 +188,144 @@ tui_process =: monad define
 )
 
 NB. ================================================================
-NB. Key handlers — in base locale for kvm's onkey dispatch
-NB. y is the key event (boxed integer from rkey)
-
-NB. Enter: LF is Ctrl+J (ascii 10), CR is Ctrl+M (ascii 13)
-kc_j =: monad define
-  cmd =. TUI_INPUT
-  TUI_INPUT =: ''
-  TUI_CURSOR =: 0
-  if. (cmd -: 'exit') +. cmd -: '/exit' do.
-    break_kvm_ =: 1
-    return.
-  end.
-  tui_process cmd
-  tui_redraw_all ''
-)
-
-kc_m =: kc_j  NB. CR same as LF
-
-NB. Backspace (DEL=127)
-k_bsp =: monad define
-  if. 0 < TUI_CURSOR do.
-    TUI_INPUT =: ((TUI_CURSOR - 1) {. TUI_INPUT) , (TUI_CURSOR }. TUI_INPUT)
-    TUI_CURSOR =: TUI_CURSOR - 1
-    tui_redraw_all ''
-  end.
-)
-
-NB. Printable ASCII
-k_asc =: monad define
-  ch =. a.{~ {.> y
-  TUI_INPUT =: (TUI_CURSOR {. TUI_INPUT) , ch , (TUI_CURSOR }. TUI_INPUT)
-  TUI_CURSOR =: TUI_CURSOR + 1
-  tui_redraw_all ''
-)
-
-NB. Arrow keys
-k_arlf =: monad define
-  if. 0 < TUI_CURSOR do.
-    TUI_CURSOR =: TUI_CURSOR - 1
-    tui_redraw_all ''
-  end.
-)
-
-k_arrt =: monad define
-  if. TUI_CURSOR < #TUI_INPUT do.
-    TUI_CURSOR =: TUI_CURSOR + 1
-    tui_redraw_all ''
-  end.
-)
-
-k_arup =: monad define
-  if. 0 < TUI_HISTORY_IDX do.
-    TUI_HISTORY_IDX =: TUI_HISTORY_IDX - 1
-    TUI_INPUT =: > TUI_HISTORY_IDX { TUI_INPUT_HISTORY
-    TUI_CURSOR =: #TUI_INPUT
-    tui_redraw_all ''
-  end.
-)
-
-k_ardn =: monad define
-  if. TUI_HISTORY_IDX < (#TUI_INPUT_HISTORY) - 1 do.
-    TUI_HISTORY_IDX =: TUI_HISTORY_IDX + 1
-    TUI_INPUT =: > TUI_HISTORY_IDX { TUI_INPUT_HISTORY
-    TUI_CURSOR =: #TUI_INPUT
-  else.
-    TUI_HISTORY_IDX =: #TUI_INPUT_HISTORY
+NB. Key dispatch — called from our own event loop
+NB. y is the key code (integer from rkey)
+tui_handle_key =: monad define
+  k =. y
+  
+  NB. Enter: LF=10 or CR=13
+  if. k e. 10 13 do.
+    cmd =. TUI_INPUT
     TUI_INPUT =: ''
     TUI_CURSOR =: 0
-  end.
-  tui_redraw_all ''
-)
-
-NB. Ctrl+U — page up
-kc_u =: monad define
-  out_h =. TUI_LINES - STATUS_H + INPUT_H
-  if. TUI_SCROLL = _1 do.
-    TUI_SCROLL =: 0 >. (#TUI_OUTPUT) - out_h
-  end.
-  TUI_SCROLL =: 0 >. TUI_SCROLL - (out_h - 1)
-  tui_redraw_all ''
-)
-
-NB. Ctrl+D — page down
-kc_d =: monad define
-  out_h =. TUI_LINES - STATUS_H + INPUT_H
-  if. TUI_SCROLL ~: _1 do.
-    TUI_SCROLL =: TUI_SCROLL + (out_h - 1)
-    if. (TUI_SCROLL + out_h) >: #TUI_OUTPUT do.
-      TUI_SCROLL =: _1
+    if. (cmd -: 'exit') +. cmd -: '/exit' do.
+      TUI_RUNNING =: 0
+      return.
     end.
-    tui_redraw_all ''
+    tui_process cmd
+    tui_redraw ''
+    return.
+  end.
+  
+  NB. Backspace: DEL=127, BS=8
+  if. k e. 127 8 do.
+    if. 0 < TUI_CURSOR do.
+      TUI_INPUT =: ((TUI_CURSOR - 1) {. TUI_INPUT) , (TUI_CURSOR }. TUI_INPUT)
+      TUI_CURSOR =: TUI_CURSOR - 1
+      tui_redraw ''
+    end.
+    return.
+  end.
+  
+  NB. Ctrl+C: ETX=3
+  if. 3 = k do.
+    TUI_RUNNING =: 0
+    return.
+  end.
+  
+  NB. Ctrl+U: page up (21)
+  if. 21 = k do.
+    out_h =. TUI_LINES - STATUS_H + INPUT_H
+    if. TUI_SCROLL = _1 do.
+      TUI_SCROLL =: 0 >. (#TUI_OUTPUT) - out_h
+    end.
+    TUI_SCROLL =: 0 >. TUI_SCROLL - (out_h - 1)
+    tui_redraw ''
+    return.
+  end.
+  
+  NB. Ctrl+D: page down (4)
+  if. 4 = k do.
+    out_h =. TUI_LINES - STATUS_H + INPUT_H
+    if. TUI_SCROLL ~: _1 do.
+      TUI_SCROLL =: TUI_SCROLL + (out_h - 1)
+      if. (TUI_SCROLL + out_h) >: #TUI_OUTPUT do.
+        TUI_SCROLL =: _1
+      end.
+      tui_redraw ''
+    end.
+    return.
+  end.
+  
+  NB. Escape sequences: ESC=27 followed by [ and code
+  if. 27 = k do.
+    if. keyp_vt_ 0 do.
+      k2 =. a. i. rkey_vt_''
+      if. 91 = k2 do.  NB. '['
+        if. keyp_vt_ 0 do.
+          k3 =. a. i. rkey_vt_''
+          select. k3
+          case. 65 do.  NB. Up arrow
+            if. 0 < TUI_HISTORY_IDX do.
+              TUI_HISTORY_IDX =: TUI_HISTORY_IDX - 1
+              TUI_INPUT =: > TUI_HISTORY_IDX { TUI_INPUT_HISTORY
+              TUI_CURSOR =: #TUI_INPUT
+              tui_redraw ''
+            end.
+          case. 66 do.  NB. Down arrow
+            if. TUI_HISTORY_IDX < (#TUI_INPUT_HISTORY) - 1 do.
+              TUI_HISTORY_IDX =: TUI_HISTORY_IDX + 1
+              TUI_INPUT =: > TUI_HISTORY_IDX { TUI_INPUT_HISTORY
+              TUI_CURSOR =: #TUI_INPUT
+            else.
+              TUI_HISTORY_IDX =: #TUI_INPUT_HISTORY
+              TUI_INPUT =: ''
+              TUI_CURSOR =: 0
+            end.
+            tui_redraw ''
+          case. 67 do.  NB. Right arrow
+            if. TUI_CURSOR < #TUI_INPUT do.
+              TUI_CURSOR =: TUI_CURSOR + 1
+              tui_redraw ''
+            end.
+          case. 68 do.  NB. Left arrow
+            if. 0 < TUI_CURSOR do.
+              TUI_CURSOR =: TUI_CURSOR - 1
+              tui_redraw ''
+            end.
+          case. 51 do.  NB. Delete: ESC[3~
+            if. keyp_vt_ 0 do.
+              tilde =. a. i. rkey_vt_''  NB. consume the '~'
+              if. TUI_CURSOR < #TUI_INPUT do.
+                TUI_INPUT =: (TUI_CURSOR {. TUI_INPUT) , ((TUI_CURSOR + 1) }. TUI_INPUT)
+                tui_redraw ''
+              end.
+            end.
+          case. 72 do.  NB. Home: ESC[H
+            TUI_CURSOR =: 0
+            tui_redraw ''
+          case. 70 do.  NB. End: ESC[F
+            TUI_CURSOR =: #TUI_INPUT
+            tui_redraw ''
+          case. 53 do.  NB. Page Up: ESC[5~
+            if. keyp_vt_ 0 do.
+              tilde =. a. i. rkey_vt_''  NB. consume '~'
+              kc_u ''
+            end.
+          case. 54 do.  NB. Page Down: ESC[6~
+            if. keyp_vt_ 0 do.
+              tilde =. a. i. rkey_vt_''  NB. consume '~'
+              kc_d ''
+            end.
+          end.
+        end.
+      end.
+    end.
+    return.
+  end.
+  
+  NB. Printable ASCII (32-126)
+  if. (k >: 32) *. k < 127 do.
+    ch =. k { a.
+    TUI_INPUT =: (TUI_CURSOR {. TUI_INPUT) , ch , (TUI_CURSOR }. TUI_INPUT)
+    TUI_CURSOR =: TUI_CURSOR + 1
+    tui_redraw ''
+    return.
   end.
 )
 
-NB. Page Up/Down (xterm codes)
-k_pgup =: kc_u
-k_pgdn =: kc_d
-
-NB. Home/End
-k_home =: monad define
-  TUI_CURSOR =: 0
-  tui_redraw_all ''
-)
-
-k_end =: monad define
-  TUI_CURSOR =: #TUI_INPUT
-  tui_redraw_all ''
-)
-
-NB. Delete
-k_del =: monad define
-  if. TUI_CURSOR < #TUI_INPUT do.
-    TUI_INPUT =: (TUI_CURSOR {. TUI_INPUT) , ((TUI_CURSOR + 1) }. TUI_INPUT)
-    tui_redraw_all ''
-  end.
-)
-
-NB. Escape / Ctrl+C — exit
-k_esc =: monad define
-  break_kvm_ =: 1
-)
-
-kc_c =: monad define
-  break_kvm_ =: 1
-)
-
 NB. ================================================================
-NB. Main TUI loop
-tui_run =: monad define
-  tui_init ''
-NB. ================================================================
-NB. Kvm event loop hooks (top-level so loop_kvm_ can find them by name)
-
-NB. Tick handler — runs every loop iteration
-tui_step =: monad define
-  EMPTY
-)
-
-NB. Init hook — called by kvm loop on start
-kvm_init =: monad define
-  EMPTY
-)
-
-NB. Cleanup — called by kvm loop on exit
-kvm_done =: monad define
-  curs_vt_ 1
-  raw_vt_ 0
-  reset_vt_ ''
-  echo ''
-)
-
-NB. ================================================================
-NB. Main TUI loop
+NB. Main TUI loop — our own simple event loop
 tui_run =: monad define
   tui_init ''
   echo =: tui_echo
@@ -336,11 +333,17 @@ tui_run =: monad define
   'prompt' tui_print 'J-PI Agent (TUI mode)'
   'muted' tui_print 'Type a question directly, or:'
   'muted' tui_print '  !cmd  run a shell command    /cmd  agent commands'
-  'muted' tui_print '  /read /edit /write /git /grep /find /model /theme /stream /usage /save /load /clear /exit'
+  'muted' tui_print '  Ctrl+U/D scroll  Ctrl+C exit'
   tui_print ''
-  tui_redraw_all ''
+  tui_redraw ''
   
-  tui_step loop_kvm_ 'base'
+  while. TUI_RUNNING do.
+    if. keyp_vt_ 100 do.       NB. check for key, 100ms timeout
+      tui_handle_key a. i. rkey_vt_''
+    end.
+  end.
+  
+  tui_cleanup ''
 )
 
 echo 'tui2 loaded.'
