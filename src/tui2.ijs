@@ -375,11 +375,24 @@ tui_run =: monad define
   'muted' tui_print 'Type a question directly, or:'
   'muted' tui_print '  !cmd  shell    /cmd  agent    Ctrl+C exit'
   tui_print ''
-  tui_redraw ''
+  
+  NB. Try redraw, show error if it fails
+  try.
+    tui_redraw ''
+  catch.
+    tui_cleanup ''
+    echo 'ERROR in tui_redraw: ' , 13!:12 ''
+    return.
+  end.
   
   while. TUI_RUNNING do.
-    k =. tui_in ''          NB. blocks here — 0% CPU while waiting
-    tui_handle_key k
+    k =. tui_in ''
+    try.
+      tui_handle_key k
+    catch.
+      NB. on error, redraw and keep going
+      try. tui_redraw '' catch. end.
+    end.
   end.
   
   tui_cleanup ''
