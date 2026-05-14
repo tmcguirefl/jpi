@@ -85,30 +85,23 @@ NB. ----------------------------------------------------------------
 NB. Spinner frames
 SPINNER =: '|';'/';'-';'\'
 
-NB. Show spinner in the output window while waiting
+NB. Show spinner in the status bar while waiting
 NB. y = spinner frame index, returns next index
 tui_spinner =: monad define
   frame =. > (y { SPINNER)
-  NB. write spinner to last line of output window, overwriting
-  if. win_output ~: 0 do.
-    wmove_ncurses_ win_output , ((TUI_LINES - 3)) , 0
-    wattr_on_ncurses_ win_output , (COLOR_PAIR_ncurses_ (theme_cp 'muted')) , 0
-    waddnstr_ncurses_ win_output ; ('  ' , frame , ' thinking...') ; TUI_COLS
-    wattr_off_ncurses_ win_output , (COLOR_PAIR_ncurses_ (theme_cp 'muted')) , 0
-    wrefresh_ncurses_ win_output
+  if. win_status ~: 0 do.
+    wbkgd_ncurses_ win_status , COLOR_PAIR_ncurses_ (theme_cp 'status')
+    wclear_ncurses_ win_status
+    wmove_ncurses_ win_status , 0 , 0
+    waddnstr_ncurses_ win_status ; (' ' , frame , ' thinking...') ; TUI_COLS
+    wrefresh_ncurses_ win_status
   end.
   (#SPINNER) | y + 1
 )
 
-NB. Clear the spinner line
+NB. Restore the status bar after spinner
 tui_spinner_clear =: monad define
-  if. win_output ~: 0 do.
-    wmove_ncurses_ win_output , ((TUI_LINES - 3)) , 0
-    NB. clear to end of line by writing spaces
-    waddnstr_ncurses_ win_output ; (TUI_COLS # ' ') ; TUI_COLS
-    wmove_ncurses_ win_output , ((TUI_LINES - 3)) , 0
-    wrefresh_ncurses_ win_output
-  end.
+  tui_draw_status ''
 )
 
 NB. Send payload to LLM, return parsed JSON response
