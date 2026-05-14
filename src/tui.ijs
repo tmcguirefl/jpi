@@ -165,6 +165,8 @@ NB. ================================================================
 NB. Main TUI loop
 tui_run =: monad define
   tui_init ''
+  NB. redirect echo to TUI output window now that ncurses is running
+  echo =: tui_echo
   CP_PROMPT tui_print 'J-PI Agent (TUI mode)'
   CP_MUTED tui_print 'Commands: ask, read, run, edit, write, git, grep, find, model, usage, save, load, clear, exit'
   tui_print ''
