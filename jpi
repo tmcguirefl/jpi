@@ -1,4 +1,0 @@
-#!/bin/bash
-# J-PI plain mode launcher
-cd "$(dirname "$0")/src"
-/Applications/j9.8/bin/jconsole_arm64 -js "load 'main.ijs'" "run_agent ''"

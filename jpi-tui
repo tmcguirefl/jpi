@@ -1,4 +1,0 @@
-#!/bin/bash
-# J-PI TUI launcher (uses arm64 jconsole with ncurses rpath)
-cd "$(dirname "$0")/src"
-/Applications/j9.8/bin/jconsole_arm64 tui_run.ijs
