@@ -41,4 +41,19 @@ read_file_str =: monad define
   end.
 )
 
+load 'image.ijs'
+
+NB. read_file_auto: reads text files normally, displays images
+NB. y = filename (or filename;offset;limit)
+read_file_auto =: monad define
+  args =. boxopen y
+  fn =. > 0 { args
+  if. is_image fn do.
+    display_image fn
+    'Image displayed: ' , fn
+  else.
+    read_file_str y
+  end.
+)
+
 echo 'read_file loaded.'

@@ -17,7 +17,7 @@ NB. Direct-mode action verbs (no LLM needed)
 
 read_verb =: monad define
   echo 'Reading: ', y
-  echo read_file_str y
+  echo read_file_auto y
 )
 
 run_verb =: monad define
@@ -96,6 +96,14 @@ usage_verb =: monad define
   show_usage ''
 )
 
+theme_verb =: monad define
+  if. 0 = #y do.
+    list_themes ''
+    return.
+  end.
+  set_theme y
+)
+
 git_verb =: monad define
   if. 0 = #y do.
     NB. show git summary
@@ -121,7 +129,7 @@ unknown_verb =: monad define
 )
 
 NB. Boxed action names
-ACTIONS =: 'read';'run';'edit';'write';'ask';'clear';'save';'load';'model';'usage';'git';'grep';'find'
+ACTIONS =: 'read';'run';'edit';'write';'ask';'clear';'save';'load';'model';'usage';'git';'grep';'find';'theme'
 
 NB. ----------------------------------------------------------------
 NB. Main agent verb
@@ -130,7 +138,7 @@ agent =: monad define
   cmd =. tolower > {. words
   remainder =. _1 }. ; (,&' ') each }. words
   idx =. ACTIONS i. < cmd
-  (read_verb`run_verb`edit_verb`write_verb`ask_verb`clear_verb`save_verb`load_verb`model_verb`usage_verb`git_verb`grep_verb`find_verb`unknown_verb) @. idx remainder
+  (read_verb`run_verb`edit_verb`write_verb`ask_verb`clear_verb`save_verb`load_verb`model_verb`usage_verb`git_verb`grep_verb`find_verb`theme_verb`unknown_verb) @. idx remainder
 )
 
 echo 'J-PI agent loaded.'

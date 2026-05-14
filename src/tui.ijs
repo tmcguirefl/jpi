@@ -6,6 +6,7 @@ load 'agent.ijs'
 
 NB. Load ncurses after agent so echo is not clobbered during init
 require 'api/ncurses'
+load 'theme.ijs'
 
 NB. ================================================================
 NB. ncurses boolean helpers (c type takes a single character string)
@@ -27,13 +28,8 @@ win_output =: 0
 win_status =: 0
 win_input  =: 0
 
-NB. Color pair constants
-CP_NORMAL   =: 1
-CP_STATUS   =: 2
-CP_TOOL     =: 3
-CP_ERROR    =: 4
-CP_PROMPT   =: 5
-CP_MUTED    =: 6
+NB. Color pairs are now driven by theme.ijs
+NB. Use theme_cp 'name' to get the pair number
 
 NB. ================================================================
 NB. Initialize ncurses and create windows
@@ -44,12 +40,8 @@ tui_init =: monad define
   noecho_ncurses_ ''
   keypad_ncurses_ stdscr ; NC_TRUE
   start_color_ncurses_ ''
-  init_pair_ncurses_ CP_NORMAL , COLOR_WHITE_ncurses_ , COLOR_BLACK_ncurses_
-  init_pair_ncurses_ CP_STATUS , COLOR_BLACK_ncurses_ , COLOR_CYAN_ncurses_
-  init_pair_ncurses_ CP_TOOL , COLOR_GREEN_ncurses_ , COLOR_BLACK_ncurses_
-  init_pair_ncurses_ CP_ERROR , COLOR_RED_ncurses_ , COLOR_BLACK_ncurses_
-  init_pair_ncurses_ CP_PROMPT , COLOR_CYAN_ncurses_ , COLOR_BLACK_ncurses_
-  init_pair_ncurses_ CP_MUTED , COLOR_YELLOW_ncurses_ , COLOR_BLACK_ncurses_
+  NB. apply theme colors
+  apply_theme ''
   tui_resize ''
 )
 
@@ -106,9 +98,9 @@ tui_redraw_output =: monad define
 
 NB. ================================================================
 NB. Add a line to the output buffer and redraw
-NB. x = color pair (default CP_NORMAL), y = text string
+NB. x = color pair (default theme_cp 'normal'), y = text string
 tui_print =: verb define
-  CP_NORMAL tui_print y
+  theme_cp 'normal' tui_print y
 :
   TUI_OUTPUT =: TUI_OUTPUT , < y
   NB. if following, just append to window (fast path)
@@ -128,7 +120,7 @@ tui_print =: verb define
 NB. ================================================================
 NB. Draw the status bar
 tui_draw_status =: monad define
-  wbkgd_ncurses_ win_status , COLOR_PAIR_ncurses_ CP_STATUS
+  wbkgd_ncurses_ win_status , COLOR_PAIR_ncurses_ theme_cp 'status'
   wclear_ncurses_ win_status
   wmove_ncurses_ win_status , 0 , 0
   left =. ' J-PI | ' , MODEL
@@ -151,9 +143,9 @@ NB. Draw the input line
 tui_draw_input =: monad define
   wclear_ncurses_ win_input
   wmove_ncurses_ win_input , 0 , 0
-  wattr_on_ncurses_ win_input , (COLOR_PAIR_ncurses_ CP_PROMPT) , 0
+  wattr_on_ncurses_ win_input , (COLOR_PAIR_ncurses_ theme_cp 'prompt') , 0
   waddnstr_ncurses_ win_input ; '> ' ; 2
-  wattr_off_ncurses_ win_input , (COLOR_PAIR_ncurses_ CP_PROMPT) , 0
+  wattr_off_ncurses_ win_input , (COLOR_PAIR_ncurses_ theme_cp 'prompt') , 0
   waddnstr_ncurses_ win_input ; TUI_INPUT ; TUI_COLS - 3
   wmove_ncurses_ win_input , 0 , 2 + TUI_CURSOR
   wrefresh_ncurses_ win_input
@@ -166,13 +158,13 @@ tui_echo =: monad define
   for_l. lines do.
     line =. > l
     if. 'Tool call:' +./@E. line do.
-      CP_TOOL tui_print line
+      theme_cp 'tool' tui_print line
     elseif. 'ERROR' +./@E. line do.
-      CP_ERROR tui_print line
+      theme_cp 'error' tui_print line
     elseif. 'Asking LLM' +./@E. line do.
-      CP_MUTED tui_print line
+      theme_cp 'muted' tui_print line
     elseif. '  [' +./@E. line do.
-      CP_MUTED tui_print line
+      theme_cp 'muted' tui_print line
     elseif. do.
       tui_print line
     end.
@@ -192,17 +184,17 @@ tui_process =: monad define
   if. '/' = {. y do.
     NB. slash command
     cmd =. }. y
-    CP_PROMPT tui_print '/ ' , cmd
+    theme_cp 'prompt' tui_print '/ ' , cmd
     if. cmd -: 'exit' do. return. end.
     agent cmd
   elseif. '!' = {. y do.
     NB. bang shell command
     cmd =. }. y
-    CP_PROMPT tui_print '! ' , cmd
+    theme_cp 'prompt' tui_print '! ' , cmd
     agent 'run ' , cmd
   elseif. do.
     NB. direct question to LLM
-    CP_PROMPT tui_print '> ' , y
+    theme_cp 'prompt' tui_print '> ' , y
     agent 'ask ' , y
   end.
   tui_draw_status ''
@@ -214,10 +206,10 @@ tui_run =: monad define
   tui_init ''
   NB. redirect echo to TUI output window now that ncurses is running
   echo =: tui_echo
-  CP_PROMPT tui_print 'J-PI Agent (TUI mode)'
-  CP_MUTED tui_print 'Type a question directly, or:'
-  CP_MUTED tui_print '  !cmd  run a shell command    /cmd  agent commands'
-  CP_MUTED tui_print '  /read /edit /write /git /grep /find /model /usage /save /load /clear /exit'
+  theme_cp 'prompt' tui_print 'J-PI Agent (TUI mode)'
+  theme_cp 'muted' tui_print 'Type a question directly, or:'
+  theme_cp 'muted' tui_print '  !cmd  run a shell command    /cmd  agent commands'
+  theme_cp 'muted' tui_print '  /read /edit /write /git /grep /find /model /theme /usage /save /load /clear /exit'
   tui_print ''
   tui_draw_status ''
   tui_draw_input ''

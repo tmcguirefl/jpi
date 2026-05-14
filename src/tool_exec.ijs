@@ -25,7 +25,7 @@ exec_read =: monad define
   if. _1 -: limit do. limit =. 2000 end.
   offset =. > offset
   limit =. > limit
-  read_file_str path ; offset ; limit
+  read_file_auto path ; offset ; limit
 )
 
 exec_bash =: monad define
