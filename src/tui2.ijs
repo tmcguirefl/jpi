@@ -1,9 +1,9 @@
 NB. J-PI TUI — j-kvm based terminal interface (no ncurses)
 NB. tui2.ijs
 NB.
-NB. Uses tangentstorm/j-kvm/vt for gethw + raw mode + keyp only.
-NB. All ANSI output via fd 1 (stdout) — puts_vt_ uses fd 0 (broken on macOS).
-NB. All keyboard input via fd 0 (stdin) — rkey_vt_ uses fd 1 (broken on macOS).
+NB. Uses tangentstorm/j-kvm/vt for gethw + raw mode.
+NB. All ANSI output via fd 1 (stdout).
+NB. All keyboard input via fd 0 (stdin) — blocking read, 0% CPU idle.
 
 NB. Load the agent first
 load 'agent.ijs'
@@ -22,7 +22,7 @@ tui_out =: monad define
   0 0 $ (U,' write n i &c l')&cd (1 ; , y ; #y)
 )
 
-NB. Read one byte from fd 0 (stdin), return ascii code
+NB. Read one byte from fd 0 (stdin) — BLOCKS until key available
 tui_in =: monad define
   buf =. (,0){a.
   res =. (U,' read l i *c l')&cd (0 ; buf ; 1)
@@ -229,10 +229,11 @@ tui_process =: monad define
 )
 
 NB. ================================================================
-NB. Key handler
+NB. Key handler — y is the ascii code
 tui_handle_key =: monad define
   k =. y
   
+  NB. Enter: LF=10 or CR=13
   if. k e. 10 13 do.
     cmd =. TUI_INPUT
     TUI_INPUT =: ''
@@ -246,6 +247,7 @@ tui_handle_key =: monad define
     return.
   end.
   
+  NB. Backspace: DEL=127 or BS=8
   if. k e. 127 8 do.
     if. 0 < TUI_CURSOR do.
       TUI_INPUT =: ((TUI_CURSOR - 1) {. TUI_INPUT) , (TUI_CURSOR }. TUI_INPUT)
@@ -255,11 +257,13 @@ tui_handle_key =: monad define
     return.
   end.
   
+  NB. Ctrl+C: ETX=3
   if. 3 = k do.
     TUI_RUNNING =: 0
     return.
   end.
   
+  NB. Ctrl+U: page up (21)
   if. 21 = k do.
     out_h =. TUI_LINES - STATUS_H + INPUT_H
     if. TUI_SCROLL = _1 do.
@@ -270,6 +274,7 @@ tui_handle_key =: monad define
     return.
   end.
   
+  NB. Ctrl+D: page down (4)
   if. 4 = k do.
     out_h =. TUI_LINES - STATUS_H + INPUT_H
     if. TUI_SCROLL ~: _1 do.
@@ -282,22 +287,23 @@ tui_handle_key =: monad define
     return.
   end.
   
-  NB. Escape sequences
+  NB. Escape sequences: ESC=27
   if. 27 = k do.
+    NB. Use non-blocking poll for the rest of the sequence
     if. keyp_vt_ 0 do.
       k2 =. tui_in ''
-      if. 91 = k2 do.
+      if. 91 = k2 do.  NB. '['
         if. keyp_vt_ 0 do.
           k3 =. tui_in ''
           select. k3
-          case. 65 do.
+          case. 65 do.  NB. Up arrow
             if. 0 < TUI_HISTORY_IDX do.
               TUI_HISTORY_IDX =: TUI_HISTORY_IDX - 1
               TUI_INPUT =: > TUI_HISTORY_IDX { TUI_INPUT_HISTORY
               TUI_CURSOR =: #TUI_INPUT
               tui_redraw ''
             end.
-          case. 66 do.
+          case. 66 do.  NB. Down arrow
             if. TUI_HISTORY_IDX < (#TUI_INPUT_HISTORY) - 1 do.
               TUI_HISTORY_IDX =: TUI_HISTORY_IDX + 1
               TUI_INPUT =: > TUI_HISTORY_IDX { TUI_INPUT_HISTORY
@@ -308,17 +314,17 @@ tui_handle_key =: monad define
               TUI_CURSOR =: 0
             end.
             tui_redraw ''
-          case. 67 do.
+          case. 67 do.  NB. Right arrow
             if. TUI_CURSOR < #TUI_INPUT do.
               TUI_CURSOR =: TUI_CURSOR + 1
               tui_redraw ''
             end.
-          case. 68 do.
+          case. 68 do.  NB. Left arrow
             if. 0 < TUI_CURSOR do.
               TUI_CURSOR =: TUI_CURSOR - 1
               tui_redraw ''
             end.
-          case. 51 do.
+          case. 51 do.  NB. Delete: ESC[3~
             if. keyp_vt_ 0 do.
               tilde =. tui_in ''
               if. TUI_CURSOR < #TUI_INPUT do.
@@ -326,18 +332,18 @@ tui_handle_key =: monad define
                 tui_redraw ''
               end.
             end.
-          case. 72 do.
+          case. 72 do.  NB. Home: ESC[H
             TUI_CURSOR =: 0
             tui_redraw ''
-          case. 70 do.
+          case. 70 do.  NB. End: ESC[F
             TUI_CURSOR =: #TUI_INPUT
             tui_redraw ''
-          case. 53 do.
+          case. 53 do.  NB. Page Up: ESC[5~
             if. keyp_vt_ 0 do.
               tilde =. tui_in ''
               tui_handle_key 21
             end.
-          case. 54 do.
+          case. 54 do.  NB. Page Down: ESC[6~
             if. keyp_vt_ 0 do.
               tilde =. tui_in ''
               tui_handle_key 4
@@ -349,7 +355,7 @@ tui_handle_key =: monad define
     return.
   end.
   
-  NB. Printable ASCII
+  NB. Printable ASCII (32-126)
   if. (k >: 32) *. k < 127 do.
     ch =. k { a.
     TUI_INPUT =: (TUI_CURSOR {. TUI_INPUT) , ch , (TUI_CURSOR }. TUI_INPUT)
@@ -360,7 +366,7 @@ tui_handle_key =: monad define
 )
 
 NB. ================================================================
-NB. Main TUI loop
+NB. Main TUI loop — blocking read, 0% CPU when idle
 tui_run =: monad define
   tui_init ''
   echo =: tui_echo
@@ -372,11 +378,8 @@ tui_run =: monad define
   tui_redraw ''
   
   while. TUI_RUNNING do.
-    if. keyp_vt_ 100 do.
-      tui_handle_key tui_in ''
-    else.
-      6!:3 (0.05)  NB. 50ms sleep when idle to prevent CPU spin
-    end.
+    k =. tui_in ''          NB. blocks here — 0% CPU while waiting
+    tui_handle_key k
   end.
   
   tui_cleanup ''
