@@ -15,7 +15,8 @@ NC_FALSE =: '0'
 NB. TUI state
 TUI_LINES =: 0
 TUI_COLS  =: 0
-TUI_OUTPUT =: 0 $ <''
+TUI_OUTPUT =: 0 $ <''      NB. all output lines
+TUI_SCROLL =: _1               NB. _1 means follow (auto-scroll to bottom)
 TUI_INPUT  =: ''
 TUI_CURSOR =: 0
 TUI_HISTORY_IDX =: 0
@@ -81,17 +82,47 @@ tui_resize =: monad define
 )
 
 NB. ================================================================
-NB. Add a line to the output window
+NB. Redraw the output window from TUI_OUTPUT at current scroll position
+tui_redraw_output =: monad define
+  wclear_ncurses_ win_output
+  wmove_ncurses_ win_output , 0 , 0
+  out_h =. TUI_LINES - 2
+  total =. #TUI_OUTPUT
+  NB. if following (_1) or scrolled past end, show the tail
+  if. (TUI_SCROLL = _1) +. (TUI_SCROLL + out_h) >: total do.
+    start =. 0 >. total - out_h
+    TUI_SCROLL =: _1
+  else.
+    start =. 0 >. TUI_SCROLL
+  end.
+  NB. draw visible lines
+  visible =. out_h {. start }. TUI_OUTPUT
+  for_l. visible do.
+    waddnstr_ncurses_ win_output ; (> l) ; TUI_COLS - 1
+    waddch_ncurses_ win_output , 10
+  end.
+  wrefresh_ncurses_ win_output
+)
+
+NB. ================================================================
+NB. Add a line to the output buffer and redraw
 NB. x = color pair (default CP_NORMAL), y = text string
 tui_print =: verb define
   CP_NORMAL tui_print y
 :
   TUI_OUTPUT =: TUI_OUTPUT , < y
-  wattr_on_ncurses_ win_output , (COLOR_PAIR_ncurses_ x) , 0
-  waddnstr_ncurses_ win_output ; y ; TUI_COLS - 1
-  waddch_ncurses_ win_output , 10
-  wattr_off_ncurses_ win_output , (COLOR_PAIR_ncurses_ x) , 0
-  wrefresh_ncurses_ win_output
+  NB. if following, just append to window (fast path)
+  if. TUI_SCROLL = _1 do.
+    wattr_on_ncurses_ win_output , (COLOR_PAIR_ncurses_ x) , 0
+    waddnstr_ncurses_ win_output ; y ; TUI_COLS - 1
+    waddch_ncurses_ win_output , 10
+    wattr_off_ncurses_ win_output , (COLOR_PAIR_ncurses_ x) , 0
+    wrefresh_ncurses_ win_output
+  else.
+    NB. user scrolled up — snap back to bottom
+    TUI_SCROLL =: _1
+    tui_redraw_output ''
+  end.
 )
 
 NB. ================================================================
@@ -218,6 +249,26 @@ tui_run =: monad define
         TUI_CURSOR =: 0
       end.
       tui_draw_input ''
+    case. KEY_PPAGE_ncurses_ do.
+      NB. Page Up — scroll back
+      out_h =. TUI_LINES - 2
+      if. TUI_SCROLL = _1 do.
+        NB. start scrolling from near the bottom
+        TUI_SCROLL =: 0 >. (#TUI_OUTPUT) - out_h
+      end.
+      TUI_SCROLL =: 0 >. TUI_SCROLL - (out_h - 1)
+      tui_redraw_output ''
+    case. KEY_NPAGE_ncurses_ do.
+      NB. Page Down — scroll forward
+      out_h =. TUI_LINES - 2
+      if. TUI_SCROLL ~: _1 do.
+        TUI_SCROLL =: TUI_SCROLL + (out_h - 1)
+        NB. if scrolled past end, snap to follow mode
+        if. (TUI_SCROLL + out_h) >: #TUI_OUTPUT do.
+          TUI_SCROLL =: _1
+        end.
+        tui_redraw_output ''
+      end.
     case. KEY_RESIZE_ncurses_ do.
       tui_resize ''
       tui_draw_status ''
