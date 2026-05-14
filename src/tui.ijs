@@ -183,6 +183,7 @@ tui_echo =: monad define
 NB. ================================================================
 NB. Process input
 NB. /command  -> agent command (strip the /)
+NB. !command  -> shell command (strip the !)
 NB. anything else -> treated as an LLM question (auto-prepends ask)
 tui_process =: monad define
   if. 0 = #y do. return. end.
@@ -194,7 +195,12 @@ tui_process =: monad define
     CP_PROMPT tui_print '/ ' , cmd
     if. cmd -: 'exit' do. return. end.
     agent cmd
-  else.
+  elseif. '!' = {. y do.
+    NB. bang shell command
+    cmd =. }. y
+    CP_PROMPT tui_print '! ' , cmd
+    agent 'run ' , cmd
+  elseif. do.
     NB. direct question to LLM
     CP_PROMPT tui_print '> ' , y
     agent 'ask ' , y
@@ -209,8 +215,9 @@ tui_run =: monad define
   NB. redirect echo to TUI output window now that ncurses is running
   echo =: tui_echo
   CP_PROMPT tui_print 'J-PI Agent (TUI mode)'
-  CP_MUTED tui_print 'Type a question directly, or use /commands:'
-  CP_MUTED tui_print '  /read /run /edit /write /git /grep /find /model /usage /save /load /clear /exit'
+  CP_MUTED tui_print 'Type a question directly, or:'
+  CP_MUTED tui_print '  !cmd  run a shell command    /cmd  agent commands'
+  CP_MUTED tui_print '  /read /edit /write /git /grep /find /model /usage /save /load /clear /exit'
   tui_print ''
   tui_draw_status ''
   tui_draw_input ''
