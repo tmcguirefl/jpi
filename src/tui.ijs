@@ -55,17 +55,29 @@ tui_init =: monad define
 NB. ================================================================
 NB. Handle terminal resize
 tui_resize =: monad define
+  NB. delete old windows
   if. win_output ~: 0 do. delwin_ncurses_ win_output end.
   if. win_status ~: 0 do. delwin_ncurses_ win_status end.
   if. win_input ~: 0 do. delwin_ncurses_ win_input end.
+  NB. clear the entire screen to remove stale content
+  wclear_ncurses_ stdscr
+  wrefresh_ncurses_ stdscr
+  NB. get new terminal size
   TUI_LINES =: ". _1 }. 2!:0 'tput lines'
   TUI_COLS  =: ". _1 }. 2!:0 'tput cols'
   out_h =. TUI_LINES - 2
+  NB. recreate windows at new size
   win_output =: newwin_ncurses_ out_h , TUI_COLS , 0 , 0
   win_status =: newwin_ncurses_ 1 , TUI_COLS , out_h , 0
   win_input  =: newwin_ncurses_ 1 , TUI_COLS , (out_h + 1) , 0
   scrollok_ncurses_ win_output ; NC_TRUE
   keypad_ncurses_ win_input ; NC_TRUE
+  NB. redraw output history into new window
+  for_l. TUI_OUTPUT do.
+    waddnstr_ncurses_ win_output ; (> l) ; TUI_COLS - 1
+    waddch_ncurses_ win_output , 10
+  end.
+  wrefresh_ncurses_ win_output
 )
 
 NB. ================================================================
