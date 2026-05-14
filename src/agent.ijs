@@ -11,6 +11,10 @@ load 'write_file.ijs'
 load 'llm.ijs'
 load 'tool_exec.ijs'
 load 'session.ijs'
+load 'extensions.ijs'
+
+NB. Load plugins at startup
+load_extensions ''
 
 NB. ----------------------------------------------------------------
 NB. Direct-mode action verbs (no LLM needed)
@@ -138,7 +142,15 @@ agent =: monad define
   cmd =. tolower > {. words
   remainder =. _1 }. ; (,&' ') each }. words
   idx =. ACTIONS i. < cmd
-  (read_verb`run_verb`edit_verb`write_verb`ask_verb`clear_verb`save_verb`load_verb`model_verb`usage_verb`git_verb`grep_verb`find_verb`theme_verb`unknown_verb) @. idx remainder
+  if. idx < #ACTIONS do.
+    NB. built-in command
+    (read_verb`run_verb`edit_verb`write_verb`ask_verb`clear_verb`save_verb`load_verb`model_verb`usage_verb`git_verb`grep_verb`find_verb`theme_verb) @. idx remainder
+  elseif. is_ext_command cmd do.
+    NB. extension command
+    cmd ext_exec_command remainder
+  elseif. do.
+    echo 'Unknown command: ' , cmd
+  end.
 )
 
 echo 'J-PI agent loaded.'

@@ -13,7 +13,13 @@ exec_tool =: monad define
   'name input' =. y
   log 'tool_exec: ' , name
   idx =. TOOLS i. < name
-  (exec_read`exec_bash`exec_edit`exec_write`exec_unknown) @. idx input
+  if. idx < #TOOLS do.
+    NB. built-in tool
+    (exec_read`exec_bash`exec_edit`exec_write) @. idx input
+  else.
+    NB. try extension tools
+    ext_exec_tool name ; input
+  end.
 )
 
 exec_read =: monad define
@@ -69,6 +75,9 @@ exec_write =: monad define
 )
 
 exec_unknown =: monad define
+  NB. check extension tools before giving up
+  NB. y is the parsed JSON args, but we need the tool name
+  NB. tool name was already dispatched — this only fires if not found
   'ERROR: unknown tool'
 )
 

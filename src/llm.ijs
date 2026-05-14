@@ -40,6 +40,8 @@ get_tools =: monad define
       r =. r , ',' , 'input_schema' mk_tool > d
     end.
   end.
+  NB. append extension tools if any
+  r =. r , get_ext_tools_json ''
   '[' , (}. r) , ']'
 )
 
