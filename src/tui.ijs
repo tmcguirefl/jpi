@@ -181,14 +181,24 @@ tui_echo =: monad define
 )
 
 NB. ================================================================
-NB. Process a command
+NB. Process input
+NB. /command  -> agent command (strip the /)
+NB. anything else -> treated as an LLM question (auto-prepends ask)
 tui_process =: monad define
   if. 0 = #y do. return. end.
   TUI_INPUT_HISTORY =: TUI_INPUT_HISTORY , < y
   TUI_HISTORY_IDX =: #TUI_INPUT_HISTORY
-  CP_PROMPT tui_print '> ' , y
-  if. y -: 'exit' do. return. end.
-  agent y
+  if. '/' = {. y do.
+    NB. slash command
+    cmd =. }. y
+    CP_PROMPT tui_print '/ ' , cmd
+    if. cmd -: 'exit' do. return. end.
+    agent cmd
+  else.
+    NB. direct question to LLM
+    CP_PROMPT tui_print '> ' , y
+    agent 'ask ' , y
+  end.
   tui_draw_status ''
 )
 
@@ -199,7 +209,8 @@ tui_run =: monad define
   NB. redirect echo to TUI output window now that ncurses is running
   echo =: tui_echo
   CP_PROMPT tui_print 'J-PI Agent (TUI mode)'
-  CP_MUTED tui_print 'Commands: ask, read, run, edit, write, git, grep, find, model, usage, save, load, clear, exit'
+  CP_MUTED tui_print 'Type a question directly, or use /commands:'
+  CP_MUTED tui_print '  /read /run /edit /write /git /grep /find /model /usage /save /load /clear /exit'
   tui_print ''
   tui_draw_status ''
   tui_draw_input ''
@@ -212,7 +223,7 @@ tui_run =: monad define
       TUI_INPUT =: ''
       TUI_CURSOR =: 0
       tui_draw_input ''
-      if. cmd -: 'exit' do. break. end.
+      if. (cmd -: 'exit') +. cmd -: '/exit' do. break. end.
       tui_process cmd
       tui_draw_input ''
     case. 127 ; KEY_BACKSPACE_ncurses_ do.
