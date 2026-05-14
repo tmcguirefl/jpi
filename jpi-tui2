@@ -1,4 +1,3 @@
 #!/bin/bash
-# TUI launcher using j-kvm (no ncurses)
 cd "$(dirname "$0")/src"
-/Applications/j9.8/bin/jconsole_arm64 -js "load 'tui2.ijs'" "tui_run ''"
+/Applications/j9.8/bin/jconsole_arm64 tui2_run.ijs
