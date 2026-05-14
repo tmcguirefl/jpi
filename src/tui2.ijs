@@ -306,6 +306,31 @@ NB. ================================================================
 NB. Main TUI loop
 tui_run =: monad define
   tui_init ''
+NB. ================================================================
+NB. Kvm event loop hooks (top-level so loop_kvm_ can find them by name)
+
+NB. Tick handler — runs every loop iteration
+tui_step =: monad define
+  EMPTY
+)
+
+NB. Init hook — called by kvm loop on start
+kvm_init =: monad define
+  EMPTY
+)
+
+NB. Cleanup — called by kvm loop on exit
+kvm_done =: monad define
+  curs_vt_ 1
+  raw_vt_ 0
+  reset_vt_ ''
+  echo ''
+)
+
+NB. ================================================================
+NB. Main TUI loop
+tui_run =: monad define
+  tui_init ''
   echo =: tui_echo
   
   'prompt' tui_print 'J-PI Agent (TUI mode)'
@@ -315,20 +340,7 @@ tui_run =: monad define
   tui_print ''
   tui_redraw_all ''
   
-  NB. Tick handler (runs every loop iteration)
-  step =: monad define
-    EMPTY
-  )
-  
-  NB. Cleanup
-  kvm_done =: monad define
-    curs_vt_ 1
-    raw_vt_ 0
-    reset_vt_''
-    echo ''
-  )
-  
-  step loop_kvm_ 'base'
+  tui_step loop_kvm_ 'base'
 )
 
 echo 'tui2 loaded.'
