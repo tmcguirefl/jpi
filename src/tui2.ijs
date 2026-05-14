@@ -32,8 +32,8 @@ NB. ================================================================
 NB. Theme color helpers
 theme_apply =: monad define
   'fg bg' =. theme_colors y
-  fgc_vt_ fg
-  bgc_vt_ bg
+  fgc_vt_ -fg
+  bgc_vt_ -bg
 )
 
 NB. ================================================================
