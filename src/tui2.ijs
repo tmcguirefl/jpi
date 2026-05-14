@@ -84,11 +84,11 @@ tui_redraw_all =: monad define
   end.
   visible =. out_h {. start }. TUI_OUTPUT
   
-  NB. Draw output lines
+  NB. Draw output lines (CR+LF in raw mode — LF alone won't carriage-return)
   reset_vt_''
   for_l. visible do.
     puts_vt_ > l
-    puts_vt_ LF
+    puts_vt_ CR,LF
   end.
   
   NB. Draw status bar
