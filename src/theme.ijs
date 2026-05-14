@@ -16,8 +16,8 @@ THEME_LIGHT =: _2 ]\ 'normal';(0,7);'status';(7,4);'tool';(2,7);'error';(1,7);'p
 
 THEME_OCEAN =: _2 ]\ 'normal';(6,0);'status';(0,6);'tool';(2,0);'error';(1,0);'prompt';(4,0);'muted';(3,0);'diff_add';(2,0);'diff_del';(5,0)
 
-NB. Available themes
-THEMES =: _2 ]\ 'default';THEME_DEFAULT;'dark';THEME_DARK;'light';THEME_LIGHT;'ocean';THEME_OCEAN
+NB. Available themes — box each theme table with < to prevent rank inflation
+THEMES =: _2 ]\ 'default';(<THEME_DEFAULT);'dark';(<THEME_DARK);'light';(<THEME_LIGHT);'ocean';(<THEME_OCEAN)
 
 NB. Current theme
 CURRENT_THEME =: THEME_DEFAULT
@@ -53,7 +53,7 @@ set_theme =: monad define
     echo 'Unknown theme: ' , y , '. Available: ' , _1 }. ; (,&' ') each {."1 THEMES
     return.
   end.
-  CURRENT_THEME =: > (<idx,1) { THEMES
+  CURRENT_THEME =: > (<idx,1) { THEMES        NB. unbox from table cell (theme is already boxed with <)
   apply_theme ''
   echo 'Theme set to: ' , y
 )
