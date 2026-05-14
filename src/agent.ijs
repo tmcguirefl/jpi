@@ -108,23 +108,6 @@ theme_verb =: monad define
   set_theme y
 )
 
-stream_verb =: monad define
-  if. 0 = #y do.
-    echo 'Streaming: ' , (STREAM_ENABLED { 'off';'on')
-    return.
-  end.
-  select. tolower y
-  case. 'on' do.
-    STREAM_ENABLED =: 1
-    echo 'Streaming enabled.'
-  case. 'off' do.
-    STREAM_ENABLED =: 0
-    echo 'Streaming disabled.'
-  case. do.
-    echo 'Usage: /stream [on|off]'
-  end.
-)
-
 git_verb =: monad define
   if. 0 = #y do.
     NB. show git summary
@@ -150,7 +133,7 @@ unknown_verb =: monad define
 )
 
 NB. Boxed action names
-ACTIONS =: 'read';'run';'edit';'write';'ask';'clear';'save';'load';'model';'usage';'git';'grep';'find';'theme';'stream'
+ACTIONS =: 'read';'run';'edit';'write';'ask';'clear';'save';'load';'model';'usage';'git';'grep';'find';'theme'
 
 NB. ----------------------------------------------------------------
 NB. Main agent verb
@@ -161,7 +144,7 @@ agent =: monad define
   idx =. ACTIONS i. < cmd
   if. idx < #ACTIONS do.
     NB. built-in command
-    (read_verb`run_verb`edit_verb`write_verb`ask_verb`clear_verb`save_verb`load_verb`model_verb`usage_verb`git_verb`grep_verb`find_verb`theme_verb`stream_verb) @. idx remainder
+    (read_verb`run_verb`edit_verb`write_verb`ask_verb`clear_verb`save_verb`load_verb`model_verb`usage_verb`git_verb`grep_verb`find_verb`theme_verb) @. idx remainder
   elseif. is_ext_command cmd do.
     NB. extension command
     cmd ext_exec_command remainder

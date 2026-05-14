@@ -70,7 +70,6 @@ mk_msg =: dyad define
 )
 
 NB. Build the full request payload from conversation history
-NB. y = 0 for non-streaming, 1 for streaming
 build_payload =: monad define
   NB. trim history if approaching context window limit
   trim_history ''
@@ -79,9 +78,7 @@ build_payload =: monad define
   sys =. 'system' mk_msg SYSTEM_PROMPT
   all =. (< sys) , HISTORY
   msgs =. _1 }. ; (,&',') each all
-  stream =. ''
-  if. y do. stream =. ',"stream":true' end.
-  '{"model":"' , MODEL , '","max_tokens":4096' , stream , ',"tools":' , tools , ',"messages":[' , msgs , ']}'
+  '{"model":"' , MODEL , '","max_tokens":4096,"tools":' , tools , ',"messages":[' , msgs , ']}'
 )
 
 NB. ----------------------------------------------------------------
@@ -101,106 +98,6 @@ llm_call =: monad define
   NB. track token usage from response
   track_usage parsed
   parsed
-)
-
-NB. ================================================================
-NB. Streaming support
-NB. Polls temp file for SSE lines, extracts tokens, echoes them live
-
-NB. Whether streaming is enabled (can be toggled)
-STREAM_ENABLED =: 1
-
-NB. Parse one SSE data line and extract the content delta token
-NB. y = a single "data: {...}" line
-NB. Returns the token string or '' if none
-parse_sse_token =: monad define
-  NB. strip "data: " prefix
-  if. -. 'data: ' +./@E. y do. '' return. end.
-  json_str =. 6 }. y
-  if. json_str -: '[DONE]' do. '' return. end.
-  try.
-    parsed =. dec_json json_str
-    choices =. > 'choices' gethash_json parsed
-    delta =. > 'delta' gethash_json > {. choices
-    content =. 'content' gethash_json delta
-    if. _1 -: content do. '' return. end.
-    > content
-  catch.
-    ''
-  end.
-)
-
-NB. Check if SSE stream contains a tool_calls response
-NB. y = full raw SSE text
-sse_has_tool_calls =: monad define
-  'tool_calls' +./@E. y
-)
-
-NB. Streaming LLM call — displays tokens as they arrive
-NB. y = json payload (with stream:true)
-NB. Returns the full accumulated text, or the raw SSE text if tool_calls detected
-llm_call_stream =: monad define
-  if. 0 = #API_KEY do.
-    echo 'ERROR: API_KEY not set.'
-    '' return.
-  end.
-  t0 =. 6!:1 ''
-  NB. start background curl
-  API_URL http_post_stream_start y
-  NB. poll for output
-  prev_len =. 0
-  full_text =. ''
-  while. 1 do.
-    6!:3 (0.1)                       NB. sleep 100ms
-    raw =. http_stream_read ''
-    new =. prev_len }. raw
-    prev_len =. #raw
-    if. 0 < #new do.
-      NB. parse SSE lines in the new chunk
-      lines =. <;._2 new , LF -. {: new , LF
-      for_l. lines do.
-        line =. > l
-        if. 'data: ' +./@E. line do.
-          token =. parse_sse_token line
-          if. 0 < #token do.
-            NB. echo token without newline (build up the response inline)
-            1!:2&2 token
-            full_text =. full_text , token
-          end.
-        end.
-      end.
-    end.
-    NB. check if curl finished
-    if. -. http_stream_alive '' do.
-      NB. read any final bytes
-      raw =. http_stream_read ''
-      new =. prev_len }. raw
-      if. 0 < #new do.
-        lines =. <;._2 new , LF -. {: new , LF
-        for_l. lines do.
-          line =. > l
-          if. 'data: ' +./@E. line do.
-            token =. parse_sse_token line
-            if. 0 < #token do.
-              1!:2&2 token
-              full_text =. full_text , token
-            end.
-          end.
-        end.
-      end.
-      break.
-    end.
-  end.
-  1!:2&2 LF                          NB. newline after streamed output
-  t1 =. 6!:1 ''
-  echo '  [' , (}: ": 0.01 * <. 100 * t1 - t0) , 's]'
-  NB. check if it was a tool call response
-  raw =. http_stream_read ''
-  if. sse_has_tool_calls raw do.
-    NB. fall back: re-call without streaming to get proper JSON
-    'tool_call' return.
-  end.
-  full_text
 )
 
 NB. ----------------------------------------------------------------
@@ -301,26 +198,8 @@ llm_ask =: monad define
   while. loops < MAX_TOOL_LOOPS do.
     loops =. loops + 1
     try.
-      NB. first attempt: try streaming if enabled
-      if. STREAM_ENABLED *. loops = 1 do.
-        payload =. build_payload 1    NB. stream=true
-        reply =. llm_call_stream payload
-        NB. if tool_call detected, fall back to non-streaming
-        if. reply -: 'tool_call' do.
-          payload =. build_payload 0
-          resp =. llm_call payload
-        else.
-          NB. streaming produced a text reply
-          if. 0 < #reply do.
-            HISTORY =: HISTORY , < 'assistant' mk_msg reply
-          end.
-          reply return.
-        end.
-      else.
-        NB. non-streaming (tool call iterations or streaming disabled)
-        payload =. build_payload 0
-        resp =. llm_call payload
-      end.
+      payload =. build_payload ''
+      resp =. llm_call payload
       if. 0 = #resp do.
         echo 'ERROR: empty response from LLM'
         '' return.
