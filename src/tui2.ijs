@@ -188,8 +188,34 @@ tui_process =: monad define
 )
 
 NB. ================================================================
-NB. Key dispatch — called from our own event loop
-NB. y is the key code (integer from rkey)
+NB. Keyboard input — read from fd 0 (stdin) since rkey_vt_ uses fd 1 (broken on macOS)
+NB. We also need a non-blocking keyp that works outside the kvm event loop.
+
+NB. libc handles
+TUI_LIBC =: unxlib 'c'
+
+NB. Non-blocking check: set stdin non-blocking, poll, restore
+TUI_F_SETFL =: 4
+TUI_O_NONBLOCK =: 4
+TUI_POLLIN =: 1
+
+tui_keyp =: monad define
+  NB. y = timeout in ms
+  'TUI_LIBC fcntl i i i i'&cd (0 , TUI_F_SETFL , TUI_O_NONBLOCK)
+  NB. poll stdin with timeout
+  pollfd =. , (0 , TUI_POLLIN) , 0
+  r =. ('TUI_LIBC poll i *l i i')&cd (pollfd ; 1 ; y)
+  NB. restore blocking
+  ('TUI_LIBC fcntl i i i i')&cd (0 , TUI_F_SETFL , 0)
+  0 ~: _48 (33 b.) 1 {:: r
+)
+
+tui_rkey =: monad define
+  NB. Read one byte from fd 0 (stdin)
+  buf =. (,0){a.
+  res =. ('TUI_LIBC read l i *c l')&cd (0 ; buf ; 1)
+  a. i. 0 { 2 {:: res
+)
 tui_handle_key =: monad define
   k =. y
   
@@ -249,11 +275,11 @@ tui_handle_key =: monad define
   
   NB. Escape sequences: ESC=27 followed by [ and code
   if. 27 = k do.
-    if. keyp_vt_ 0 do.
-      k2 =. a. i. rkey_vt_''
+    if. tui_keyp 0 do.
+      k2 =. tui_rkey ''
       if. 91 = k2 do.  NB. '['
-        if. keyp_vt_ 0 do.
-          k3 =. a. i. rkey_vt_''
+        if. tui_keyp 0 do.
+          k3 =. tui_rkey ''
           select. k3
           case. 65 do.  NB. Up arrow
             if. 0 < TUI_HISTORY_IDX do.
@@ -284,8 +310,8 @@ tui_handle_key =: monad define
               tui_redraw ''
             end.
           case. 51 do.  NB. Delete: ESC[3~
-            if. keyp_vt_ 0 do.
-              tilde =. a. i. rkey_vt_''  NB. consume the '~'
+            if. tui_keyp 0 do.
+              tilde =. tui_rkey ''  NB. consume the '~'
               if. TUI_CURSOR < #TUI_INPUT do.
                 TUI_INPUT =: (TUI_CURSOR {. TUI_INPUT) , ((TUI_CURSOR + 1) }. TUI_INPUT)
                 tui_redraw ''
@@ -298,13 +324,13 @@ tui_handle_key =: monad define
             TUI_CURSOR =: #TUI_INPUT
             tui_redraw ''
           case. 53 do.  NB. Page Up: ESC[5~
-            if. keyp_vt_ 0 do.
-              tilde =. a. i. rkey_vt_''  NB. consume '~'
+            if. tui_keyp 0 do.
+              tilde =. tui_rkey ''  NB. consume '~'
               kc_u ''
             end.
           case. 54 do.  NB. Page Down: ESC[6~
-            if. keyp_vt_ 0 do.
-              tilde =. a. i. rkey_vt_''  NB. consume '~'
+            if. tui_keyp 0 do.
+              tilde =. tui_rkey ''  NB. consume '~'
               kc_d ''
             end.
           end.
@@ -338,8 +364,8 @@ tui_run =: monad define
   tui_redraw ''
   
   while. TUI_RUNNING do.
-    if. keyp_vt_ 100 do.       NB. check for key, 100ms timeout
-      tui_handle_key a. i. rkey_vt_''
+    if. tui_keyp 100 do.       NB. check for key, 100ms timeout
+      tui_handle_key tui_rkey ''
     end.
   end.
   
