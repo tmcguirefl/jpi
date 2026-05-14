@@ -67,7 +67,7 @@ tui_resize =: monad define
   keypad_ncurses_ win_input ; NC_TRUE
   NB. redraw output history into new window
   for_l. TUI_OUTPUT do.
-    waddnstr_ncurses_ win_output ; (> l) ; TUI_COLS - 1
+    waddnstr_ncurses_ win_output ; (> l) ; TUI_COLS
     waddch_ncurses_ win_output , 10
   end.
   wrefresh_ncurses_ win_output
@@ -90,7 +90,7 @@ tui_redraw_output =: monad define
   NB. draw visible lines
   visible =. out_h {. start }. TUI_OUTPUT
   for_l. visible do.
-    waddnstr_ncurses_ win_output ; (> l) ; TUI_COLS - 1
+    waddnstr_ncurses_ win_output ; (> l) ; TUI_COLS
     waddch_ncurses_ win_output , 10
   end.
   wrefresh_ncurses_ win_output
@@ -106,7 +106,7 @@ tui_print =: verb define
   NB. if following, just append to window (fast path)
   if. TUI_SCROLL = _1 do.
     wattr_on_ncurses_ win_output , (COLOR_PAIR_ncurses_ x) , 0
-    waddnstr_ncurses_ win_output ; y ; TUI_COLS - 1
+    waddnstr_ncurses_ win_output ; y ; TUI_COLS
     waddch_ncurses_ win_output , 10
     wattr_off_ncurses_ win_output , (COLOR_PAIR_ncurses_ x) , 0
     wrefresh_ncurses_ win_output
