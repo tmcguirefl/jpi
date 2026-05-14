@@ -8,9 +8,9 @@ NB. Load ncurses after agent so echo is not clobbered during init
 require 'api/ncurses'
 
 NB. ================================================================
-NB. ncurses boolean helpers (c type needs a character, not integer)
-NC_TRUE  =: {. 1 { a.
-NC_FALSE =: {. 0 { a.
+NB. ncurses boolean helpers (c type takes a single character string)
+NC_TRUE  =: '1'
+NC_FALSE =: '0'
 
 NB. TUI state
 TUI_LINES =: 0
