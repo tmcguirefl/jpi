@@ -97,17 +97,35 @@ tui_redraw_output =: monad define
 )
 
 NB. ================================================================
+NB. Wrap a long line into multiple lines of at most w characters
+NB. x = width, y = string. Returns boxed list of lines.
+wrap_line =: dyad define
+  if. x >: #y do. ,< y return. end.
+  r =. 0 $ <''
+  while. x < #y do.
+    r =. r , < x {. y
+    y =. x }. y
+  end.
+  r , < y
+)
+
+NB. ================================================================
 NB. Add a line to the output buffer and redraw
 NB. x = color pair (default theme_cp 'normal'), y = text string
+NB. Long lines are wrapped to fit the screen width
 tui_print =: verb define
   (theme_cp 'normal') tui_print y
 :
-  TUI_OUTPUT =: TUI_OUTPUT , < y
+  NB. wrap long lines into screen-width chunks
+  wrapped =. TUI_COLS wrap_line y
+  TUI_OUTPUT =: TUI_OUTPUT , wrapped
   NB. if following, just append to window (fast path)
   if. TUI_SCROLL = _1 do.
     wattr_on_ncurses_ win_output , (COLOR_PAIR_ncurses_ x) , 0
-    waddnstr_ncurses_ win_output ; y ; TUI_COLS
-    waddch_ncurses_ win_output , 10
+    for_wl. wrapped do.
+      waddnstr_ncurses_ win_output ; (> wl) ; TUI_COLS
+      waddch_ncurses_ win_output , 10
+    end.
     wattr_off_ncurses_ win_output , (COLOR_PAIR_ncurses_ x) , 0
     wrefresh_ncurses_ win_output
   else.
@@ -259,8 +277,8 @@ tui_run =: monad define
         TUI_CURSOR =: 0
       end.
       tui_draw_input ''
-    case. KEY_PPAGE_ncurses_ do.
-      NB. Page Up — scroll back
+    case. KEY_PPAGE_ncurses_ ; 21 do.
+      NB. Page Up or Ctrl+U — scroll back
       out_h =. TUI_LINES - 2
       if. TUI_SCROLL = _1 do.
         NB. start scrolling from near the bottom
@@ -268,8 +286,8 @@ tui_run =: monad define
       end.
       TUI_SCROLL =: 0 >. TUI_SCROLL - (out_h - 1)
       tui_redraw_output ''
-    case. KEY_NPAGE_ncurses_ do.
-      NB. Page Down — scroll forward
+    case. KEY_NPAGE_ncurses_ ; 4 do.
+      NB. Page Down or Ctrl+D — scroll forward
       out_h =. TUI_LINES - 2
       if. TUI_SCROLL ~: _1 do.
         TUI_SCROLL =: TUI_SCROLL + (out_h - 1)
