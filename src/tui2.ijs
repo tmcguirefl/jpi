@@ -1,23 +1,110 @@
 NB. J-PI TUI — j-kvm based terminal interface (no ncurses)
 NB. tui2.ijs
 NB.
-NB. Uses tangentstorm/j-kvm/vt for direct ANSI terminal control.
-NB. Own simple event loop — no kvm loop adverb complexity.
-NB. No ncurses dependency.
+NB. Uses tangentstorm/j-kvm/vt for terminal size and raw mode only.
+NB. All ANSI output goes to fd 1 (stdout) — puts_vt_ writes to fd 0 (broken on macOS).
+NB. All keyboard input reads from fd 0 (stdin) — rkey_vt_ reads from fd 1 (broken on macOS).
 
-NB. Load the agent first (all echo output goes to normal stdout)
+NB. Load the agent first
 load 'agent.ijs'
 
-NB. Load j-kvm vt (ANSI escape codes + raw input)
+NB. Load j-kvm vt (only for gethw and raw mode setup)
 require 'tangentstorm/j-kvm/vt'
 load 'theme.ijs'
+
+NB. ================================================================
+NB. Low-level I/O — direct libc calls to correct fd
+
+NB. We need the libc handle — replicate what vt.ijs does
+TUI_LIBC =: unxlib 'c'
+
+NB. Write string y to fd 1 (stdout)
+tui_write =: monad define
+  0 0 $ (TUI_LIBC,' write n i &c l')&cd (1 ; , y ; #y)
+)
+
+NB. Read one byte from fd 0 (stdin), return ascii code
+tui_rkey =: monad define
+  buf =. (,0){a.
+  res =. (TUI_LIBC,' read l i *c l')&cd (0 ; buf ; 1)
+  a. i. 0 { 2 {:: res
+)
+
+NB. Non-blocking key check with timeout (ms)
+NB. Returns 1 if key available, 0 if not
+NB. Uses poll() on fd 0
+tui_keyp =: monad define
+  NB. set stdin non-blocking
+  (TUI_LIBC,' fcntl i i i i')&cd (0 ; 4 ; 4)  NB. F_SETFL=4, O_NONBLOCK=4 on Darwin
+  NB. poll stdin with timeout
+  pollfd =. , (0 , 1) , 0  NB. fd=0, events=POLLIN=1, revents=0
+  r =. (TUI_LIBC,' poll i *l i i')&cd (pollfd ; 1 ; y)
+  NB. restore blocking
+  (TUI_LIBC,' fcntl i i i i')&cd (0 ; 4 ; 0)
+  NB. check if POLLIN set in revents
+  0 ~: _48 (33 b.) 1 {:: r
+)
+
+NB. ================================================================
+NB. ANSI escape code builders
+
+NB. Core constants
+ESC =: 27{a.
+CSI =: ESC,'['
+
+NB. Control sequences
+NB. goxy: move cursor to (col, row) — 0-indexed
+tui_goxy =: monad define
+  'col row' =. y
+  tui_write CSI , (": row+1) , ';' , (": col+1) , 'f'
+)
+
+NB. ceol: clear to end of line
+tui_ceol =: monad define
+  tui_write CSI , '0K'
+)
+
+NB. cscr: clear screen
+tui_cscr =: monad define
+  tui_write CSI , '2J' , CSI , 'H'
+)
+
+NB. reset: reset all attributes
+tui_reset =: monad define
+  tui_write CSI , '0m'
+)
+
+NB. fgc: set 256-color foreground (neg=256-color, pos=24-bit)
+tui_fgc =: monad define
+  if. y < 0 do.
+    tui_write CSI , '38;5;' , (": -y) , 'm'
+  else.
+    'r g b' =. (3#256) #: y
+    tui_write CSI , '38;2;' , (": r) , ';' , (": g) , ';' , (": b) , 'm'
+  end.
+)
+
+NB. bgc: set 256-color background (neg=256-color, pos=24-bit)
+tui_bgc =: monad define
+  if. y < 0 do.
+    tui_write CSI , '48;5;' , (": -y) , 'm'
+  else.
+    'r g b' =. (3#256) #: y
+    tui_write CSI , '48;2;' , (": r) , ';' , (": g) , ';' , (": b) , 'm'
+  end.
+)
+
+NB. curs: show(1)/hide(0) cursor
+tui_curs =: monad define
+  tui_write CSI , '?25' , (y{'lh') ,~ ]
+)
 
 NB. ================================================================
 NB. TUI state
 TUI_LINES =: 0
 TUI_COLS  =: 0
-TUI_OUTPUT =: 0 $ <''      NB. all output lines (boxed)
-TUI_SCROLL =: _1           NB. _1 = follow (auto-scroll to bottom)
+TUI_OUTPUT =: 0 $ <''
+TUI_SCROLL =: _1
 TUI_INPUT  =: ''
 TUI_CURSOR =: 0
 TUI_HISTORY_IDX =: 0
@@ -30,10 +117,11 @@ INPUT_H  =: 1
 
 NB. ================================================================
 NB. Theme color helpers
+NB. ncurses 0-7 map to 256-color 0-7, but j-kvm needs negative for 256-color
 theme_apply =: monad define
   'fg bg' =. theme_colors y
-  fgc_vt_ -fg
-  bgc_vt_ -bg
+  tui_fgc -fg
+  tui_bgc -bg
 )
 
 NB. ================================================================
@@ -41,17 +129,17 @@ NB. Initialize TUI
 tui_init =: monad define
   'TUI_LINES TUI_COLS' =. gethw_vt_''
   raw_vt_ 1
-  curs_vt_ 0
-  cscr_vt_''
+  tui_cscr ''
+  tui_curs 0
 )
 
 NB. ================================================================
-NB. Restore terminal on exit (critical!)
+NB. Restore terminal on exit
 tui_cleanup =: monad define
-  curs_vt_ 1
+  tui_curs 1
   raw_vt_ 0
-  reset_vt_''
-  puts_vt_ CR,LF
+  tui_reset ''
+  tui_write CR,LF
 )
 
 NB. ================================================================
@@ -64,16 +152,6 @@ wrap_line =: dyad define
     y =. x }. y
   end.
   r , < y
-)
-
-NB. ================================================================
-NB. Draw a single line at a specific row, clearing it first
-NB. x = (col, row), y = text
-tui_draw_line =: dyad define
-  'col row' =. x
-  goxy_vt_ col , row
-  ceol_vt_''
-  puts_vt_ y
 )
 
 NB. ================================================================
@@ -91,19 +169,23 @@ tui_redraw =: monad define
   end.
   visible =. out_h {. start }. TUI_OUTPUT
   
-  NB. Draw each output line at its row — use goxy, never rely on cursor advancement
-  reset_vt_''
+  tui_cscr ''
+  
+  NB. Draw each output line at its exact row
+  tui_reset ''
   for_i. i. #visible do.
-    (0 , i) tui_draw_line > i { visible
+    tui_goxy 0 , i
+    tui_write > i { visible
   end.
   
   NB. Clear remaining output rows
   for_i. (#visible) + i. out_h - #visible do.
-    (0 , i) tui_draw_line ''
+    tui_goxy 0 , i
+    tui_ceol ''
   end.
   
   NB. Draw status bar at row out_h
-  goxy_vt_ 0 , out_h
+  tui_goxy 0 , out_h
   theme_apply 'status'
   left =. ' J-PI | ' , MODEL
   branch =. git_branch ''
@@ -116,23 +198,20 @@ tui_redraw =: monad define
   end.
   right =. right , ' | ' , (": #HISTORY) , ' msgs '
   pad =. (TUI_COLS - (#left) + #right) # ' '
-  puts_vt_ left , pad , right
-  NB. fill remainder of status row
-  remains =. TUI_COLS - #left - #pad - #right
-  if. remains > 0 do. puts_vt_ remains # ' ' end.
+  tui_write left , pad , right
+  tui_reset ''
   
   NB. Draw input line at row (out_h + STATUS_H)
-  goxy_vt_ 0 , (out_h + STATUS_H)
-  reset_vt_''
+  tui_goxy 0 , (out_h + STATUS_H)
   theme_apply 'prompt'
-  puts_vt_ '> '
-  reset_vt_''
-  puts_vt_ TUI_INPUT
-  ceol_vt_''                              NB. clear after input text
+  tui_write '> '
+  tui_reset ''
+  tui_write TUI_INPUT
+  tui_ceol ''
   
-  NB. Position cursor in input line
-  goxy_vt_ (2 + TUI_CURSOR) , (out_h + STATUS_H)
-  curs_vt_ 1
+  NB. Position cursor
+  tui_goxy (2 + TUI_CURSOR) , (out_h + STATUS_H)
+  tui_curs 1
 )
 
 NB. ================================================================
@@ -188,34 +267,7 @@ tui_process =: monad define
 )
 
 NB. ================================================================
-NB. Keyboard input — read from fd 0 (stdin) since rkey_vt_ uses fd 1 (broken on macOS)
-NB. We also need a non-blocking keyp that works outside the kvm event loop.
-
-NB. libc handles
-TUI_LIBC =: unxlib 'c'
-
-NB. Non-blocking check: set stdin non-blocking, poll, restore
-TUI_F_SETFL =: 4
-TUI_O_NONBLOCK =: 4
-TUI_POLLIN =: 1
-
-tui_keyp =: monad define
-  NB. y = timeout in ms
-  'TUI_LIBC fcntl i i i i'&cd (0 , TUI_F_SETFL , TUI_O_NONBLOCK)
-  NB. poll stdin with timeout
-  pollfd =. , (0 , TUI_POLLIN) , 0
-  r =. ('TUI_LIBC poll i *l i i')&cd (pollfd ; 1 ; y)
-  NB. restore blocking
-  ('TUI_LIBC fcntl i i i i')&cd (0 , TUI_F_SETFL , 0)
-  0 ~: _48 (33 b.) 1 {:: r
-)
-
-tui_rkey =: monad define
-  NB. Read one byte from fd 0 (stdin)
-  buf =. (,0){a.
-  res =. ('TUI_LIBC read l i *c l')&cd (0 ; buf ; 1)
-  a. i. 0 { 2 {:: res
-)
+NB. Key handler — y is the ascii code from tui_rkey
 tui_handle_key =: monad define
   k =. y
   
@@ -233,7 +285,7 @@ tui_handle_key =: monad define
     return.
   end.
   
-  NB. Backspace: DEL=127, BS=8
+  NB. Backspace: DEL=127 or BS=8
   if. k e. 127 8 do.
     if. 0 < TUI_CURSOR do.
       TUI_INPUT =: ((TUI_CURSOR - 1) {. TUI_INPUT) , (TUI_CURSOR }. TUI_INPUT)
@@ -273,7 +325,7 @@ tui_handle_key =: monad define
     return.
   end.
   
-  NB. Escape sequences: ESC=27 followed by [ and code
+  NB. Escape sequences: ESC=27
   if. 27 = k do.
     if. tui_keyp 0 do.
       k2 =. tui_rkey ''
@@ -311,7 +363,7 @@ tui_handle_key =: monad define
             end.
           case. 51 do.  NB. Delete: ESC[3~
             if. tui_keyp 0 do.
-              tilde =. tui_rkey ''  NB. consume the '~'
+              tilde =. tui_rkey ''
               if. TUI_CURSOR < #TUI_INPUT do.
                 TUI_INPUT =: (TUI_CURSOR {. TUI_INPUT) , ((TUI_CURSOR + 1) }. TUI_INPUT)
                 tui_redraw ''
@@ -325,13 +377,13 @@ tui_handle_key =: monad define
             tui_redraw ''
           case. 53 do.  NB. Page Up: ESC[5~
             if. tui_keyp 0 do.
-              tilde =. tui_rkey ''  NB. consume '~'
-              kc_u ''
+              tilde =. tui_rkey ''
+              tui_handle_key 21  NB. same as Ctrl+U
             end.
           case. 54 do.  NB. Page Down: ESC[6~
             if. tui_keyp 0 do.
-              tilde =. tui_rkey ''  NB. consume '~'
-              kc_d ''
+              tilde =. tui_rkey ''
+              tui_handle_key 4   NB. same as Ctrl+D
             end.
           end.
         end.
@@ -351,7 +403,7 @@ tui_handle_key =: monad define
 )
 
 NB. ================================================================
-NB. Main TUI loop — our own simple event loop
+NB. Main TUI loop
 tui_run =: monad define
   tui_init ''
   echo =: tui_echo
@@ -364,7 +416,7 @@ tui_run =: monad define
   tui_redraw ''
   
   while. TUI_RUNNING do.
-    if. tui_keyp 100 do.       NB. check for key, 100ms timeout
+    if. tui_keyp 100 do.
       tui_handle_key tui_rkey ''
     end.
   end.
