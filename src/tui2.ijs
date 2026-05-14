@@ -30,19 +30,9 @@ tui_rkey =: monad define
   a. i. 0 { 2 {:: res
 )
 
-NB. Non-blocking key check with timeout (ms)
-NB. Returns 1 if key available, 0 if not
-NB. Uses poll() on fd 0
+NB. Non-blocking key check — delegate to j-kvm (it works on macOS)
 tui_keyp =: monad define
-  NB. set stdin non-blocking
-  (TUI_LIBC,' fcntl i i i i')&cd (0 ; 4 ; 4)  NB. F_SETFL=4, O_NONBLOCK=4 on Darwin
-  NB. poll stdin with timeout
-  pollfd =. , (0 , 1) , 0  NB. fd=0, events=POLLIN=1, revents=0
-  r =. (TUI_LIBC,' poll i *l i i')&cd (pollfd ; 1 ; y)
-  NB. restore blocking
-  (TUI_LIBC,' fcntl i i i i')&cd (0 ; 4 ; 0)
-  NB. check if POLLIN set in revents
-  0 ~: _48 (33 b.) 1 {:: r
+  keyp_vt_ y
 )
 
 NB. ================================================================
