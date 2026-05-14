@@ -82,20 +82,62 @@ build_payload =: monad define
 )
 
 NB. ----------------------------------------------------------------
+NB. Spinner frames
+SPINNER =: '|';'/';'-';'\'
+
+NB. Show spinner in the output window while waiting
+NB. y = spinner frame index, returns next index
+tui_spinner =: monad define
+  frame =. > (y { SPINNER)
+  NB. write spinner to last line of output window, overwriting
+  if. win_output ~: 0 do.
+    wmove_ncurses_ win_output , ((TUI_LINES - 3)) , 0
+    wattr_on_ncurses_ win_output , (COLOR_PAIR_ncurses_ (theme_cp 'muted')) , 0
+    waddnstr_ncurses_ win_output ; ('  ' , frame , ' thinking...') ; TUI_COLS
+    wattr_off_ncurses_ win_output , (COLOR_PAIR_ncurses_ (theme_cp 'muted')) , 0
+    wrefresh_ncurses_ win_output
+  end.
+  (#SPINNER) | y + 1
+)
+
+NB. Clear the spinner line
+tui_spinner_clear =: monad define
+  if. win_output ~: 0 do.
+    wmove_ncurses_ win_output , ((TUI_LINES - 3)) , 0
+    NB. clear to end of line by writing spaces
+    waddnstr_ncurses_ win_output ; (TUI_COLS # ' ') ; TUI_COLS
+    wmove_ncurses_ win_output , ((TUI_LINES - 3)) , 0
+    wrefresh_ncurses_ win_output
+  end.
+)
+
 NB. Send payload to LLM, return parsed JSON response
+NB. Uses async curl + spinner if TUI is active, else blocking
 llm_call =: monad define
   if. 0 = #API_KEY do.
     echo 'ERROR: API_KEY not set.'
     echo 'Set OPENROUTER_API_KEY or ANTHROPIC_API_KEY env var.'
     '' return.
   end.
-  t0 =. 6!:1 ''                    NB. start timer
-  raw =. API_URL http_post y
-  t1 =. 6!:1 ''                    NB. end timer
+  t0 =. 6!:1 ''
+  if. win_output ~: 0 do.
+    NB. TUI mode: async with spinner
+    API_URL http_post_async y
+    spin =. 0
+    while. -. http_async_done '' do.
+      spin =. tui_spinner spin
+      6!:3 (0.15)                   NB. sleep 150ms between frames
+    end.
+    tui_spinner_clear ''
+    raw =. http_async_read ''
+  else.
+    NB. plain mode: blocking
+    raw =. API_URL http_post y
+  end.
+  t1 =. 6!:1 ''
   elapsed =. t1 - t0
   echo '  [' , (}: ": 0.01 * <. 100 * elapsed) , 's]'
   parsed =. dec_json raw
-  NB. track token usage from response
   track_usage parsed
   parsed
 )
