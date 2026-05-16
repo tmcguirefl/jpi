@@ -113,16 +113,21 @@ llm_call =: monad define
     '' return.
   end.
   t0 =. 6!:1 ''
-  if. win_output ~: 0 do.
-    NB. TUI mode: async with spinner
-    API_URL http_post_async y
-    spin =. 0
-    while. -. http_async_done '' do.
-      spin =. tui_spinner spin
-      6!:3 (0.15)                   NB. sleep 150ms between frames
+  if. 0 ~: 4!:0 <'win_output' do.
+    if. win_output ~: 0 do.
+      NB. TUI mode: async with spinner
+      API_URL http_post_async y
+      spin =. 0
+      while. -. http_async_done '' do.
+        spin =. tui_spinner spin
+        6!:3 (0.15)                   NB. sleep 150ms between frames
+      end.
+      tui_spinner_clear ''
+      raw =. http_async_read ''
+    else.
+      NB. plain mode: blocking
+      raw =. API_URL http_post y
     end.
-    tui_spinner_clear ''
-    raw =. http_async_read ''
   else.
     NB. plain mode: blocking
     raw =. API_URL http_post y

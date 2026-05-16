@@ -1,104 +1,89 @@
-NB. J-PI TUI — ncurses-based terminal interface
-NB. tui.ijs
+NB. ============================================================
+NB. J-PI TUI2 — Pure vt.ijs escape-code TUI (from scratch)
+NB. Uses tangentstorm/j-kvm/vt definitions exclusively.
+NB. ============================================================
 
-NB. Load the agent first (all echo output goes to normal stdout)
+require '/Users/tomdevel/jdev/j-kvm/vt.ijs'   NB. pure vt escape codes
+
+coinsert 'vt'                     NB. bring all vt verbs into current scope
+
+NB. load the rest of the agent (theme, agent, etc.)
+NB. ensure we are in src/ so that agent.ijs and its loads can find siblings
+srcdir =. '/Users/tomdevel/jdev/jpi/src'   NB. absolute path (reliable)
+old =. 1!:43 ''
+1!:44 srcdir
 load 'agent.ijs'
-
-NB. Load ncurses after agent so echo is not clobbered during init
-require 'api/ncurses'
 load 'theme.ijs'
+load 'md.ijs'
+1!:44 old
 
-NB. ================================================================
-NB. ncurses boolean helpers (c type takes a single character string)
-NC_TRUE  =: '1'
-NC_FALSE =: '0'
+NB. dummy symbol so llm.ijs conditionals never see it as undefined
+win_output =: 0
+LF =: 10{a.
 
-NB. TUI state
+NB. ============================================================
+NB. Global TUI state
 TUI_LINES =: 0
 TUI_COLS  =: 0
-TUI_OUTPUT =: 0 $ <''      NB. all output lines
-TUI_SCROLL =: _1               NB. _1 means follow (auto-scroll to bottom)
+TUI_OUTPUT =: 0 $ <''
+TUI_SCROLL =: 0   NB. start at top
 TUI_INPUT  =: ''
 TUI_CURSOR =: 0
 TUI_HISTORY_IDX =: 0
 TUI_INPUT_HISTORY =: 0 $ <''
+HISTORY_FILE =: (2!:5 'HOME') , '/.jpi_history'
+HISTORY_MAX =: 500
 
-NB. Window handles
-win_output =: 0
-win_status =: 0
-win_input  =: 0
-
-NB. Color pairs are now driven by theme.ijs
-NB. Use theme_cp 'name' to get the pair number
-
-NB. ================================================================
-NB. Initialize ncurses and create windows
-tui_init =: monad define
-  stdscr =: initscr_ncurses_ ''
-  if. 0 = stdscr do. 1!:2&2 'ERROR: ncurses init failed' return. end.
-  cbreak_ncurses_ ''
-  noecho_ncurses_ ''
-  keypad_ncurses_ stdscr ; NC_TRUE
-  start_color_ncurses_ ''
-  NB. apply theme colors
-  apply_theme ''
-  tui_resize ''
+NB. Load history from file
+hist_load =: monad define
+  try.
+    raw =. 1!:1 < HISTORY_FILE
+    if. 0 < #raw do.
+      if. LF ~: {: raw do. raw =. raw , LF end.
+      TUI_INPUT_HISTORY =: <;._2 raw
+    end.
+  catch. end.
+  TUI_HISTORY_IDX =: #TUI_INPUT_HISTORY
 )
 
-NB. ================================================================
-NB. Handle terminal resize
-tui_resize =: monad define
-  NB. delete old windows
-  if. win_output ~: 0 do. delwin_ncurses_ win_output end.
-  if. win_status ~: 0 do. delwin_ncurses_ win_status end.
-  if. win_input ~: 0 do. delwin_ncurses_ win_input end.
-  NB. clear the entire screen to remove stale content
-  wclear_ncurses_ stdscr
-  wrefresh_ncurses_ stdscr
-  NB. get new terminal size
-  TUI_LINES =: ". _1 }. 2!:0 'tput lines'
-  TUI_COLS  =: ". _1 }. 2!:0 'tput cols'
-  out_h =. TUI_LINES - 2
-  NB. recreate windows at new size
-  win_output =: newwin_ncurses_ out_h , TUI_COLS , 0 , 0
-  win_status =: newwin_ncurses_ 1 , TUI_COLS , out_h , 0
-  win_input  =: newwin_ncurses_ 1 , TUI_COLS , (out_h + 1) , 0
-  scrollok_ncurses_ win_output ; NC_TRUE
-  keypad_ncurses_ win_input ; NC_TRUE
-  NB. redraw output history into new window
-  for_l. TUI_OUTPUT do.
-    waddnstr_ncurses_ win_output ; (> l) ; TUI_COLS
-    waddch_ncurses_ win_output , 10
-  end.
-  wrefresh_ncurses_ win_output
+NB. Save history to file (keep last HISTORY_MAX entries)
+hist_save =: monad define
+  h =. (- HISTORY_MAX <. #TUI_INPUT_HISTORY) {. TUI_INPUT_HISTORY
+  txt =. ; h ,each <LF
+  txt 1!:2 < HISTORY_FILE
 )
+TUI_RUNNING =: 1
+MOUSE_ON =: 0      NB. mouse wheel tracking state
+SCROLL_LINES =: 3  NB. lines per wheel tick
 
-NB. ================================================================
-NB. Redraw the output window from TUI_OUTPUT at current scroll position
-tui_redraw_output =: monad define
-  wclear_ncurses_ win_output
-  wmove_ncurses_ win_output , 0 , 0
-  out_h =. TUI_LINES - 2
-  total =. #TUI_OUTPUT
-  NB. if following (_1) or scrolled past end, show the tail
-  if. (TUI_SCROLL = _1) +. (TUI_SCROLL + out_h) >: total do.
-    start =. 0 >. total - out_h
-    TUI_SCROLL =: _1
+NB. Toggle mouse wheel capture on/off
+mouse_toggle =: monad define
+  MOUSE_ON =: -. MOUSE_ON
+  if. MOUSE_ON do.
+    puts CSI,'?1000h'
+    puts CSI,'?1006h'
   else.
-    start =. 0 >. TUI_SCROLL
+    puts CSI,'?1000l'
+    puts CSI,'?1006l'
   end.
-  NB. draw visible lines
-  visible =. out_h {. start }. TUI_OUTPUT
-  for_l. visible do.
-    waddnstr_ncurses_ win_output ; (> l) ; TUI_COLS
-    waddch_ncurses_ win_output , 10
-  end.
-  wrefresh_ncurses_ win_output
+  tui_draw_bottom ''
 )
 
-NB. ================================================================
-NB. Wrap a long line into multiple lines of at most w characters
-NB. x = width, y = string. Returns boxed list of lines.
+NB. Bottom area: separator, input (1+ lines), separator, footer1, footer2
+NB. Fixed chrome = 4 (sep + sep + footer1 + footer2)
+BOTTOM_CHROME =: 4
+
+NB. How many screen rows the current input occupies
+input_h =: 3 : 0
+  w =. TUI_COLS
+  if. 0 = #TUI_INPUT do. 1 return. end.
+  >. (#TUI_INPUT) % w          NB. ceiling: text / width
+)
+
+out_h =: 3 : 'TUI_LINES - (BOTTOM_CHROME + input_h 0)'
+
+NB. ============================================================
+NB. Helper: wrap long line to width x
 wrap_line =: dyad define
   if. x >: #y do. ,< y return. end.
   r =. 0 $ <''
@@ -109,207 +94,321 @@ wrap_line =: dyad define
   r , < y
 )
 
-NB. ================================================================
-NB. Add a line to the output buffer and redraw
-NB. x = color pair (default theme_cp 'normal'), y = text string
-NB. Long lines are wrapped to fit the screen width
-tui_print =: verb define
-  (theme_cp 'normal') tui_print y
-:
-  NB. wrap long lines into screen-width chunks
-  wrapped =. TUI_COLS wrap_line y
-  TUI_OUTPUT =: TUI_OUTPUT , wrapped
-  NB. if following, just append to window (fast path)
-  if. TUI_SCROLL = _1 do.
-    wattr_on_ncurses_ win_output , (COLOR_PAIR_ncurses_ x) , 0
-    for_wl. wrapped do.
-      waddnstr_ncurses_ win_output ; (> wl) ; TUI_COLS
-      waddch_ncurses_ win_output , 10
-    end.
-    wattr_off_ncurses_ win_output , (COLOR_PAIR_ncurses_ x) , 0
-    wrefresh_ncurses_ win_output
-  else.
-    NB. user scrolled up — snap back to bottom
-    TUI_SCROLL =: _1
-    tui_redraw_output ''
-  end.
+NB. ============================================================
+NB. Theme color application
+tui_theme =: monad define
+  'fg bg' =. theme_colors y
+  fgc fg
+  bgc bg
 )
 
-NB. ================================================================
-NB. Draw the status bar
-tui_draw_status =: monad define
-  wbkgd_ncurses_ win_status , COLOR_PAIR_ncurses_ (theme_cp 'status')
-  wclear_ncurses_ win_status
-  wmove_ncurses_ win_status , 0 , 0
-  left =. ' J-PI | ' , MODEL
+NB. ============================================================
+NB. Lightweight redraw of bottom 4 lines (avoids flicker)
+NB. Layout (dynamic):
+NB.   row oh           = separator
+NB.   row oh+1 .. +ih  = input line(s)   (ih = input_h 0)
+NB.   row oh+ih+1      = separator
+NB.   row oh+ih+2      = footer 1  (path + branch)
+NB.   row oh+ih+3      = footer 2  (tokens, msgs, model)
+tui_draw_bottom =: monad define
+  curs 0                      NB. hide cursor during redraw
+  oh =. out_h''
+  w =. TUI_COLS
+  ih =. input_h 0
+
+  NB. ── row oh: top separator ──
+  goxy 0, oh
+  fgc 8
+  puts w repstr_md_ BOX_H_md_
+  reset''
+  ceol''
+
+  NB. ── row oh+1 .. oh+ih: input lines ──
+  for_r. i. ih do.
+    goxy 0, oh + 1 + r
+    reset''
+    chunk =. w {. (r * w) }. TUI_INPUT
+    puts chunk
+    ceol''
+  end.
+
+  NB. ── row oh+ih+1: bottom separator ──
+  goxy 0, oh + ih + 1
+  fgc 8
+  puts w repstr_md_ BOX_H_md_
+  reset''
+  ceol''
+
+  NB. ── row oh+ih+2: footer line 1 — path + branch ──
+  goxy 0, oh + ih + 2
+  fgc 8
+  pwd =. 1!:43 ''
   branch =. git_branch ''
-  right =. ''
-  if. 0 < TOTAL_INPUT_TOKENS + TOTAL_OUTPUT_TOKENS do.
-    right =. right , (": TOTAL_INPUT_TOKENS + TOTAL_OUTPUT_TOKENS) , ' tok'
+  fl1 =. ' ' , pwd
+  if. 0 < #branch do. fl1 =. fl1 , ' (' , branch , ')' end.
+  if. w < #fl1 do. fl1 =. ((w-3) {. fl1) , '...' end.
+  puts fl1
+  ceol''
+  reset''
+
+  NB. ── row oh+ih+3: footer line 2 — tokens, msgs, scroll, model ──
+  goxy 0, oh + ih + 3
+  fgc 8
+  left =. ' '
+  if. 0 < TOTAL_INPUT_TOKENS do.
+    left =. left , (utf8_md_ 16b2191) , (": TOTAL_INPUT_TOKENS) , ' '
   end.
-  if. 0 < #branch do.
-    right =. right , ' | ' , branch
+  if. 0 < TOTAL_OUTPUT_TOKENS do.
+    left =. left , (utf8_md_ 16b2193) , (": TOTAL_OUTPUT_TOKENS) , ' '
   end.
-  right =. right , ' | ' , (": #HISTORY) , ' msgs '
-  pad =. (TUI_COLS - (#left) + #right) # ' '
-  waddnstr_ncurses_ win_status ; (left , pad , right) ; TUI_COLS
-  wrefresh_ncurses_ win_status
+  left =. left , (": #HISTORY) , ' msgs'
+  scroll_pct =. ''
+  total =. #TUI_OUTPUT
+  if. total > oh do.
+    pct =. <. 100 * (TUI_SCROLL + oh) % total
+    scroll_pct =. ' ' , (": pct) , '%%'
+  end.
+  left =. left , scroll_pct
+  if. MOUSE_ON do. left =. left , ' [wheel]' end.
+  right =. MODEL , ' '
+  pad =. 0 >. w - (#left) + #right
+  puts left , (pad # ' ') , right
+  ceol''
+  reset''
+
+  NB. place cursor on correct input row + column
+  crow =. <. TUI_CURSOR % w      NB. which wrapped row
+  ccol =. w | TUI_CURSOR         NB. column within that row
+  goxy ccol, oh + 1 + crow
+  curs 1                         NB. show cursor only now, on input line
 )
 
-NB. ================================================================
-NB. Draw the input line
-tui_draw_input =: monad define
-  wclear_ncurses_ win_input
-  wmove_ncurses_ win_input , 0 , 0
-  wattr_on_ncurses_ win_input , (COLOR_PAIR_ncurses_ (theme_cp 'prompt')) , 0
-  waddnstr_ncurses_ win_input ; '> ' ; 2
-  wattr_off_ncurses_ win_input , (COLOR_PAIR_ncurses_ (theme_cp 'prompt')) , 0
-  waddnstr_ncurses_ win_input ; TUI_INPUT ; TUI_COLS - 3
-  wmove_ncurses_ win_input , 0 , 2 + TUI_CURSOR
-  wrefresh_ncurses_ win_input
+NB. ============================================================
+NB. Scroll to bottom (called after new output is added)
+tui_scroll_bottom =: monad define
+  oh =. out_h''
+  TUI_SCROLL =: 0 >. (#TUI_OUTPUT) - oh
 )
 
-NB. ================================================================
-NB. Route output to the TUI output window with color hints
+NB. ============================================================
+NB. Full screen redraw — only the output pane is scrolled / redrawn.
+NB. Status bar + input line are left alone except for tui_draw_bottom.
+tui_redraw =: monad define
+  curs 0                      NB. hide cursor during redraw
+  oh =. out_h''
+  total =. #TUI_OUTPUT
+  NB. clamp scroll to valid range
+  TUI_SCROLL =: 0 >. (total - oh) <. TUI_SCROLL
+  visible =. oh {. TUI_SCROLL }. TUI_OUTPUT
+
+  reset''
+  NB. Only repaint/clear the output area (top oh rows)
+  for_i. i.#visible do.
+    goxy 0,i
+    ceol''
+    puts >i{visible
+  end.
+  NB. clear remaining rows in the output pane
+  for_i. (#visible) + i. oh - #visible do.
+    goxy 0,i
+    ceol''
+  end.
+
+  tui_draw_bottom ''
+)
+
+NB. ============================================================
+NB. Add text to output buffer + auto-scroll to bottom
+tui_print =: verb define
+  'normal' tui_print y
+:
+  wrapped =. (TUI_COLS-1) wrap_line y
+  TUI_OUTPUT =: TUI_OUTPUT , wrapped
+  tui_scroll_bottom ''
+)
+
+NB. ============================================================
+NB. Echo routing — markdown-render normal LLM output, plain for system lines
 tui_echo =: monad define
-  lines =. <;._2 y , LF -. {: y , LF
+  NB. check for system/tool lines first
+  if. 'Tool call:' +./@E. y do. 'tool'  tui_print y return. end.
+  if. 'ERROR'      +./@E. y do. 'error' tui_print y return. end.
+  if. 'Asking LLM' +./@E. y do. 'muted' tui_print y return. end.
+  if. '  ['        +./@E. y do. 'muted' tui_print y return. end.
+  NB. normal output: render markdown then split into lines for buffer
+  rendered =. md_render_md_ y
+  if. LF ~: {: rendered do. rendered =. rendered , LF end.
+  lines =. <;._2 rendered
   for_l. lines do.
-    line =. > l
-    if. 'Tool call:' +./@E. line do.
-      (theme_cp 'tool') tui_print line
-    elseif. 'ERROR' +./@E. line do.
-      (theme_cp 'error') tui_print line
-    elseif. 'Asking LLM' +./@E. line do.
-      (theme_cp 'muted') tui_print line
-    elseif. '  [' +./@E. line do.
-      (theme_cp 'muted') tui_print line
-    elseif. do.
-      tui_print line
-    end.
+    tui_print >l
   end.
-  tui_draw_status ''
 )
 
-NB. ================================================================
-NB. Process input
-NB. /command  -> agent command (strip the /)
-NB. !command  -> shell command (strip the !)
-NB. anything else -> treated as an LLM question (auto-prepends ask)
+NB. ============================================================
+NB. Process command
 tui_process =: monad define
-  if. 0 = #y do. return. end.
-  TUI_INPUT_HISTORY =: TUI_INPUT_HISTORY , < y
+  if. 0=#y do. return. end.
+  TUI_INPUT_HISTORY =: TUI_INPUT_HISTORY , <y
   TUI_HISTORY_IDX =: #TUI_INPUT_HISTORY
-  if. '/' = {. y do.
-    NB. slash command
-    cmd =. }. y
-    (theme_cp 'prompt') tui_print '/ ' , cmd
+  hist_save ''
+  if. '/' = {.y do.
+    cmd =. }.y
+    'prompt' tui_print '/ ',cmd
     if. cmd -: 'exit' do. return. end.
     agent cmd
-  elseif. '!' = {. y do.
-    NB. bang shell command
-    cmd =. }. y
-    (theme_cp 'prompt') tui_print '! ' , cmd
-    agent 'run ' , cmd
-  elseif. do.
-    NB. direct question to LLM
-    (theme_cp 'prompt') tui_print '> ' , y
-    agent 'ask ' , y
+  elseif. '!' = {.y do.
+    cmd =. }.y
+    'prompt' tui_print '! ',cmd
+    agent 'run ',cmd
+  else.
+    'prompt' tui_print '> ',y
+    agent 'ask ',y
   end.
-  tui_draw_status ''
 )
 
-NB. ================================================================
-NB. Main TUI loop
-tui_run =: monad define
-  tui_init ''
-  NB. redirect echo to TUI output window now that ncurses is running
-  echo =: tui_echo
-  (theme_cp 'prompt') tui_print 'J-PI Agent (TUI mode)'
-  (theme_cp 'muted') tui_print 'Type a question directly, or:'
-  (theme_cp 'muted') tui_print '  !cmd  run a shell command    /cmd  agent commands'
-  (theme_cp 'muted') tui_print '  /read /edit /write /git /grep /find /model /theme /usage /save /load /clear /exit'
-  tui_print ''
-  tui_draw_status ''
-  tui_draw_input ''
-  while. 1 do.
-    key =. wgetch_ncurses_ win_input
-    select. key
-    case. 10 do.
-      NB. Enter
-      cmd =. TUI_INPUT
-      TUI_INPUT =: ''
-      TUI_CURSOR =: 0
-      tui_draw_input ''
-      if. (cmd -: 'exit') +. cmd -: '/exit' do. break. end.
-      tui_process cmd
-      tui_draw_input ''
-    case. 127 ; KEY_BACKSPACE_ncurses_ do.
-      if. 0 < TUI_CURSOR do.
-        TUI_INPUT =: ((TUI_CURSOR - 1) {. TUI_INPUT) , (TUI_CURSOR }. TUI_INPUT)
-        TUI_CURSOR =: TUI_CURSOR - 1
-        tui_draw_input ''
-      end.
-    case. KEY_LEFT_ncurses_ do.
-      if. 0 < TUI_CURSOR do.
-        TUI_CURSOR =: TUI_CURSOR - 1
-        tui_draw_input ''
-      end.
-    case. KEY_RIGHT_ncurses_ do.
-      if. TUI_CURSOR < #TUI_INPUT do.
-        TUI_CURSOR =: TUI_CURSOR + 1
-        tui_draw_input ''
-      end.
-    case. KEY_UP_ncurses_ do.
-      if. 0 < TUI_HISTORY_IDX do.
-        TUI_HISTORY_IDX =: TUI_HISTORY_IDX - 1
-        TUI_INPUT =: > TUI_HISTORY_IDX { TUI_INPUT_HISTORY
-        TUI_CURSOR =: #TUI_INPUT
-        tui_draw_input ''
-      end.
-    case. KEY_DOWN_ncurses_ do.
-      if. TUI_HISTORY_IDX < (#TUI_INPUT_HISTORY) - 1 do.
-        TUI_HISTORY_IDX =: TUI_HISTORY_IDX + 1
-        TUI_INPUT =: > TUI_HISTORY_IDX { TUI_INPUT_HISTORY
-        TUI_CURSOR =: #TUI_INPUT
-      else.
-        TUI_HISTORY_IDX =: #TUI_INPUT_HISTORY
-        TUI_INPUT =: ''
-        TUI_CURSOR =: 0
-      end.
-      tui_draw_input ''
-    case. KEY_PPAGE_ncurses_ ; 21 do.
-      NB. Page Up or Ctrl+U — scroll back
-      out_h =. TUI_LINES - 2
-      if. TUI_SCROLL = _1 do.
-        NB. start scrolling from near the bottom
-        TUI_SCROLL =: 0 >. (#TUI_OUTPUT) - out_h
-      end.
-      TUI_SCROLL =: 0 >. TUI_SCROLL - (out_h - 1)
-      tui_redraw_output ''
-    case. KEY_NPAGE_ncurses_ ; 4 do.
-      NB. Page Down or Ctrl+D — scroll forward
-      out_h =. TUI_LINES - 2
-      if. TUI_SCROLL ~: _1 do.
-        TUI_SCROLL =: TUI_SCROLL + (out_h - 1)
-        NB. if scrolled past end, snap to follow mode
-        if. (TUI_SCROLL + out_h) >: #TUI_OUTPUT do.
-          TUI_SCROLL =: _1
+NB. ============================================================
+NB. Keyboard handler
+tui_handle_key =: monad define
+  k =. y
+  if. k e. 10 13 do.          NB. Enter
+    cmd =. TUI_INPUT
+    TUI_INPUT =: '' [ TUI_CURSOR =: 0
+    if. (cmd-:'exit')+.cmd-:'/exit' do. TUI_RUNNING=:0 return. end.
+    tui_process cmd
+    tui_redraw''
+    return.
+  end.
+
+  if. k e. 127 8 do.          NB. Backspace
+    if. TUI_CURSOR>0 do.
+      TUI_INPUT =: (TUI_CURSOR-1){.TUI_INPUT , TUI_CURSOR}.TUI_INPUT
+      TUI_CURSOR =: TUI_CURSOR-1
+      tui_draw_bottom ''
+    end. return.
+  end.
+
+  if. k=3 do. TUI_RUNNING=:0 return. end.   NB. Ctrl-C
+
+  if. k=23 do. mouse_toggle '' return. end.  NB. Ctrl-W toggle mouse wheel
+
+  if. k=21 do.                NB. Ctrl-U (page up)
+    oh=.out_h''
+    TUI_SCROLL =: 0 >. TUI_SCROLL - (oh - 1)
+    tui_redraw'' return.
+  end.
+
+  if. k=4 do.                 NB. Ctrl-D (page down)
+    oh=.out_h''
+    TUI_SCROLL =: ((#TUI_OUTPUT) - oh) <. TUI_SCROLL + (oh - 1)
+    tui_redraw'' return.
+  end.
+
+  if. k=27 do.                NB. Escape sequence
+    if. keyp 0 do.
+      k2 =. rkey''
+      if. k2=91 do.           NB. [
+        if. keyp 0 do.
+          k3 =. rkey''
+          NB. SGR mouse event: ESC [ <
+          if. k3 = 60 do.
+            seq =. ''
+            while. 1 do.
+              c =. a. {~ rkey''
+              if. c e. 'Mm' do. break. end.
+              seq =. seq , c
+            end.
+            parts =. ';' cut seq
+            btn =. 0 ". > 0 { parts
+            my =. 0 ". > 2 { parts  NB. mouse Y (1-based)
+            oh =. out_h''
+            NB. only scroll if wheel is in output area (row 1..oh)
+            if. (btn = 64) *. my <: oh do.
+              TUI_SCROLL =: 0 >. TUI_SCROLL - SCROLL_LINES
+              tui_redraw''
+            elseif. (btn = 65) *. my <: oh do.
+              TUI_SCROLL =: ((#TUI_OUTPUT) - oh) <. TUI_SCROLL + SCROLL_LINES
+              tui_redraw''
+            end.
+            return.
+          end.
+          select. k3
+          case. 65 do.        NB. Up
+            if. TUI_HISTORY_IDX>0 do.
+              TUI_HISTORY_IDX =: TUI_HISTORY_IDX-1
+              TUI_INPUT =: >TUI_HISTORY_IDX{TUI_INPUT_HISTORY
+              TUI_CURSOR =: #TUI_INPUT
+              tui_redraw''
+            end.
+          case. 66 do.        NB. Down
+            if. TUI_HISTORY_IDX < (#TUI_INPUT_HISTORY)-1 do.
+              TUI_HISTORY_IDX =: TUI_HISTORY_IDX+1
+              TUI_INPUT =: >TUI_HISTORY_IDX{TUI_INPUT_HISTORY
+              TUI_CURSOR =: #TUI_INPUT
+            else.
+              TUI_HISTORY_IDX =: #TUI_INPUT_HISTORY
+              TUI_INPUT =: '' [ TUI_CURSOR =: 0
+            end.
+            tui_redraw''
+          case. 67 do. if. TUI_CURSOR<#TUI_INPUT do. TUI_CURSOR+:=1 [ tui_draw_bottom '' end.
+          case. 68 do. if. TUI_CURSOR>0 do. TUI_CURSOR-:=1 [ tui_draw_bottom '' end.
+          case. 51 do.        NB. Delete
+            if. keyp 0 do. tilde=.rkey'' [ if. TUI_CURSOR<#TUI_INPUT do.
+              TUI_INPUT =: TUI_CURSOR{.TUI_INPUT , (TUI_CURSOR+1)}.TUI_INPUT
+              tui_redraw''
+            end. end.
+          case. 72 do. TUI_CURSOR=:0 [ tui_redraw''
+          case. 70 do. TUI_CURSOR=:#TUI_INPUT [ tui_redraw''
+          case. 53 do. if. keyp 0 do. tilde=.rkey'' [ tui_handle_key 21 end.
+          case. 54 do. if. keyp 0 do. tilde=.rkey'' [ tui_handle_key 4 end.
+          end.
         end.
-        tui_redraw_output ''
-      end.
-    case. KEY_RESIZE_ncurses_ do.
-      tui_resize ''
-      tui_draw_status ''
-      tui_draw_input ''
-    case. do.
-      NB. printable character
-      if. (key >: 32) *. key < 127 do.
-        ch =. {. key { a.
-        TUI_INPUT =: (TUI_CURSOR {. TUI_INPUT) , ch , (TUI_CURSOR }. TUI_INPUT)
-        TUI_CURSOR =: TUI_CURSOR + 1
-        tui_draw_input ''
       end.
     end.
+    return.
   end.
-  endwin_ncurses_ ''
+
+  if. (k>:32)*.k<127 do.      NB. printable
+    ch =. k{a.
+    TUI_INPUT =: (TUI_CURSOR{.TUI_INPUT),ch,(TUI_CURSOR}.TUI_INPUT)
+    TUI_CURSOR =: TUI_CURSOR+1
+    tui_draw_bottom '' return.
+  end.
 )
+
+NB. ============================================================
+NB. Main loop
+tui_run =: monad define
+  hw =. gethw''
+  TUI_LINES =: 0{ hw
+  TUI_COLS =: 1{ hw
+  raw 1
+  curs 0
+  cscr''
+  reset''
+  puts ESC,']0;J-PI',7{a.   NB. set static terminal title (OSC 0)
+  NB. no mouse capture — allows normal text selection
+  NB. use Ctrl-U/Ctrl-D or PageUp/PageDown to scroll
+
+  hist_load ''
+  echo =: tui_echo
+  'prompt' tui_print 'J-PI Agent (TUI2 – pure vt)'
+  'muted'  tui_print 'Type a question, !cmd, /cmd, Ctrl+C exit, Ctrl+W wheel'
+  tui_print ''
+
+  tui_redraw''
+
+  while. TUI_RUNNING do.
+    k =. rkey''
+    try. tui_handle_key k catch. tui_redraw'' end.
+  end.
+
+  hist_save ''
+  if. MOUSE_ON do. puts CSI,'?1000l' [ puts CSI,'?1006l' end.
+  curs 1
+  reset''
+  raw 0
+  puts CR,LF
+  2!:55 (0)          NB. exit jconsole cleanly
+)
+
+echo 'tui2 loaded (pure vt escape codes).'

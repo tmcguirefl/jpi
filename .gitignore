@@ -10,6 +10,9 @@ Thumbs.db
 *.tmp
 *.log
 
+# Local docs (J reference material)
+docs/
+
 # API keys / secrets
 .env
 api_key.txt
