@@ -85,6 +85,20 @@ attic/               # archived ncurses TUI (see attic/README.md)
 
 ## Acknowledgments & Credits
 
+### Pi Coding Agent — Inspiration & Architecture
+
+J-PI is inspired by and modeled after the
+[**Pi Coding Agent**](https://github.com/earendil-works/pi) by
+[Earendil Works](https://github.com/earendil-works), an agentic coding
+assistant harness that provides tool-use capabilities (file read/write,
+shell execution, code editing) through a terminal UI.
+
+The overall architecture of J-PI — the agent loop, tool dispatch,
+LLM integration, TUI layout with scrollable output and status footer,
+input history, and plugin system — follows the patterns established
+by Pi. J-PI reimplements these concepts from scratch in the J programming
+language, leveraging J's array-oriented primitives and concise notation.
+
 ### j-kvm / vt.ijs — Terminal I/O Library
 
 The TUI is built on top of
@@ -159,6 +173,7 @@ Key adaptations for the J port:
 This project is provided as-is for educational and experimental purposes.
 See individual dependency repositories for their respective licenses:
 
+- [Pi Coding Agent](https://github.com/earendil-works/pi) — MIT
 - [J Software](https://www.jsoftware.com) — GPL3
 - [j-kvm](https://github.com/tangentstorm/j-kvm) — MIT
 - [TermMark](https://github.com/ishanawal/TermMark) — MIT
