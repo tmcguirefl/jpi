@@ -83,6 +83,11 @@ plugins/             # extension plugins
 attic/               # archived ncurses TUI (see attic/README.md)
 ```
 
+## Contributors
+
+- **Tom McGuire** ([@tmcguirefl](https://github.com/tmcguirefl)) — project creator
+- **Pi Coding Agent** ([pi](https://github.com/earendil-works/pi)) — AI pair-programming partner; co-developed the TUI, markdown renderer, escape-code architecture, and project structure
+
 ## Acknowledgments & Credits
 
 ### Pi Coding Agent — Inspiration & Architecture
