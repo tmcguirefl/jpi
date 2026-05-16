@@ -68,6 +68,7 @@ src/
   tui.ijs            # TUI — pure escape-code terminal interface
   tui_run.ijs        # boot script
   md.ijs             # Markdown → ANSI renderer
+  vendor/vt.ijs        # vendored & patched j-kvm/vt.ijs (macOS fixes)
   agent.ijs          # agent dispatcher
   llm.ijs            # LLM API client
   config.ijs         # configuration

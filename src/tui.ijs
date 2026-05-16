@@ -3,7 +3,7 @@ NB. J-PI TUI2 — Pure vt.ijs escape-code TUI (from scratch)
 NB. Uses tangentstorm/j-kvm/vt definitions exclusively.
 NB. ============================================================
 
-require '/Users/tomdevel/jdev/j-kvm/vt.ijs'   NB. pure vt escape codes
+require 'vendor/vt.ijs'   NB. vendored vt.ijs (macOS fixes included)
 
 coinsert 'vt'                     NB. bring all vt verbs into current scope
 
