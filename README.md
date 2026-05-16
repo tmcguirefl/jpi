@@ -170,10 +170,11 @@ Key adaptations for the J port:
 
 ## License
 
-This project is provided as-is for educational and experimental purposes.
-See individual dependency repositories for their respective licenses:
+MIT License — see [LICENSE](LICENSE) for details.
+
+Dependency licenses:
 
 - [Pi Coding Agent](https://github.com/earendil-works/pi) — MIT
-- [J Software](https://www.jsoftware.com) — GPL3
 - [j-kvm](https://github.com/tangentstorm/j-kvm) — MIT
 - [TermMark](https://github.com/ishanawal/TermMark) — MIT
+- [J Software](https://www.jsoftware.com) — GPL3 (the interpreter; not bundled)
