@@ -78,7 +78,13 @@ build_payload =: monad define
   sys =. 'system' mk_msg SYSTEM_PROMPT
   all =. (< sys) , HISTORY
   msgs =. _1 }. ; (,&',') each all
-  '{"model":"' , MODEL , '","max_tokens":4096,"tools":' , tools , ',"messages":[' , msgs , ']}'
+  
+  NB. Do not send max_tokens for openrouter, it truncates some models naturally
+  if. PROVIDER -: 'openrouter' do.
+    '{"model":"' , MODEL , '","tools":' , tools , ',"messages":[' , msgs , ']}'
+  else.
+    '{"model":"' , MODEL , '","max_tokens":4096,"tools":' , tools , ',"messages":[' , msgs , ']}'
+  end.
 )
 
 NB. ----------------------------------------------------------------

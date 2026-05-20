@@ -13,6 +13,84 @@ load 'tool_exec.ijs'
 load 'session.ijs'
 load 'extensions.ijs'
 
+NB. ----------------------------------------------------------------
+NB. List available models from OpenRouter (used by model_verb)
+list_models =: monad define
+  if. PROVIDER -: 'openrouter' do.
+    echo 'Fetching model list from OpenRouter...'
+    raw =. 'https://openrouter.ai/api/v1/models' http_get ''
+    
+    if. 0 = #raw do.
+      echo 'ERROR: Empty response from OpenRouter.'
+      return.
+    end.
+    
+    try.
+      js  =. dec_json raw
+      
+      NB. Check if we got an error response instead of models
+      err =. 'error' gethash_json js
+      if. _1 -.@-: err do.
+        echo 'OpenRouter API error: ', ": err
+        return.
+      end.
+      
+      data =. 'data' gethash_json js
+      if. data -: _1 do.
+        echo 'No "data" field found in response.'
+        return.
+      end.
+      
+      data =. > data
+      
+      models_list =. 0 $ <''
+      ids_list =. 0 $ <''
+
+      for_m. data do.
+        m =. > m
+        idv   =. 'id' gethash_json m
+        id    =. 'N/A'
+        if. idv -.@-: _1 do. id =. > idv end.
+        namev =. 'name' gethash_json m
+        name  =. 'N/A'
+        if. namev -.@-: _1 do. name =. > namev end.
+        ctx  =. 'N/A'
+        try.
+          arch =. 'architecture' gethash_json m
+          if. (arch -.@-: _1) *. (arch -.@-: 0) do.
+            cl =. 'context_length' gethash_json > arch
+            if. cl -.@-: _1 do. ctx =. ": > cl end.
+          end.
+        catch. end.
+        
+        models_list =. models_list , < (id , '  -  ' , name , '  (ctx: ' , ctx , ')')
+        ids_list =. ids_list , < id
+      end.
+      
+      if. 3 = 4!:0 <'tui_select_menu' do.
+        sel_idx =. 'Select a model:' tui_select_menu models_list
+        if. sel_idx -.@-: _1 do.
+          new_model =. > sel_idx { ids_list
+          MODEL =: new_model
+          save_model ''
+          echo 'Model set to: ' , MODEL
+        else.
+          echo 'Model selection aborted.'
+        end.
+      else.
+        echo 'Available OpenRouter models:'
+        for_v. models_list do. echo > v end.
+      end.
+    catch.
+      echo 'Failed to parse model list from OpenRouter.'
+      echo 'Raw response (first 200 chars):'
+      echo 200 {. raw
+    end.
+  else.
+    echo 'Model listing is only available for OpenRouter accounts.'
+  end.
+)
+
 NB. Load plugins at startup
 load_extensions ''
 
@@ -89,10 +167,11 @@ load_verb =: monad define
 
 model_verb =: monad define
   if. 0 = #y do.
-    echo 'Current model: ' , MODEL
+    list_models ''
     return.
   end.
   MODEL =: y
+  save_model ''
   echo 'Model set to: ' , MODEL
 )
 

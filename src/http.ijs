@@ -67,4 +67,8 @@ http_async_read =: monad define
   fread HTTP_RESPONSE_FILE
 )
 
-echo 'http loaded.'
+NB. Simple GET helper
+http_get =: dyad define
+  url =. x
+  2!:0 'curl -s -H "Authorization: Bearer ' , API_KEY , '" ' , url
+)

@@ -53,7 +53,7 @@ hist_save =: monad define
   txt 1!:2 < HISTORY_FILE
 )
 TUI_RUNNING =: 1
-MOUSE_ON =: 0      NB. mouse wheel tracking state
+MOUSE_ON =: 1      NB. mouse wheel tracking state
 SCROLL_LINES =: 3  NB. lines per wheel tick
 
 NB. Toggle mouse wheel capture on/off
@@ -80,7 +80,7 @@ input_h =: 3 : 0
   >. (#TUI_INPUT) % w          NB. ceiling: text / width
 )
 
-out_h =: 3 : 'TUI_LINES - (BOTTOM_CHROME + input_h 0)'
+out_h =: 3 : 'TUI_LINES - (BOTTOM_CHROME + TUI_MENU_H + input_h 0)'
 
 NB. ============================================================
 NB. Helper: wrap long line to width x
@@ -112,9 +112,13 @@ NB.   row oh+ih+2      = footer 1  (path + branch)
 NB.   row oh+ih+3      = footer 2  (tokens, msgs, model)
 tui_draw_bottom =: monad define
   curs 0                      NB. hide cursor during redraw
-  oh =. out_h''
+  hw =. gethw''
+  TUI_LINES =: 0{ hw
+  TUI_COLS =: 1{ hw
+  
   w =. TUI_COLS
   ih =. input_h 0
+  oh =. out_h''
 
   NB. ── row oh: top separator ──
   goxy 0, oh
@@ -131,16 +135,19 @@ tui_draw_bottom =: monad define
     puts chunk
     ceol''
   end.
+  
+  NB. If there is an active menu, we leave the blank space for it right here underneath the input
+  NB. The menu logic itself draws into this space.
 
-  NB. ── row oh+ih+1: bottom separator ──
-  goxy 0, oh + ih + 1
+  NB. ── row oh+ih+1...: bottom separator ──
+  goxy 0, oh + ih + TUI_MENU_H + 1
   fgc 8
   puts w repstr_md_ BOX_H_md_
   reset''
   ceol''
 
   NB. ── row oh+ih+2: footer line 1 — path + branch ──
-  goxy 0, oh + ih + 2
+  goxy 0, oh + ih + TUI_MENU_H + 2
   fgc 8
   pwd =. 1!:43 ''
   branch =. git_branch ''
@@ -152,7 +159,7 @@ tui_draw_bottom =: monad define
   reset''
 
   NB. ── row oh+ih+3: footer line 2 — tokens, msgs, scroll, model ──
-  goxy 0, oh + ih + 3
+  goxy 0, oh + ih + TUI_MENU_H + 3
   fgc 8
   left =. ' '
   if. 0 < TOTAL_INPUT_TOKENS do.
@@ -171,7 +178,7 @@ tui_draw_bottom =: monad define
   left =. left , scroll_pct
   if. MOUSE_ON do. left =. left , ' [wheel]' end.
   right =. MODEL , ' '
-  pad =. 0 >. w - (#left) + #right
+  pad =. 0 >. (w - 1) - ((#left) + #right)
   puts left , (pad # ' ') , right
   ceol''
   reset''
@@ -186,15 +193,23 @@ tui_draw_bottom =: monad define
 NB. ============================================================
 NB. Scroll to bottom (called after new output is added)
 tui_scroll_bottom =: monad define
+  hw =. gethw''
+  TUI_LINES =: 0{ hw
+  TUI_COLS =: 1{ hw
   oh =. out_h''
   TUI_SCROLL =: 0 >. (#TUI_OUTPUT) - oh
 )
+
+TUI_MENU_H =: 0
 
 NB. ============================================================
 NB. Full screen redraw — only the output pane is scrolled / redrawn.
 NB. Status bar + input line are left alone except for tui_draw_bottom.
 tui_redraw =: monad define
   curs 0                      NB. hide cursor during redraw
+  hw =. gethw''
+  TUI_LINES =: 0{ hw
+  TUI_COLS =: 1{ hw
   oh =. out_h''
   total =. #TUI_OUTPUT
   NB. clamp scroll to valid range
@@ -267,6 +282,94 @@ tui_process =: monad define
 )
 
 NB. ============================================================
+NB. TUI Select Menu - Modal popup for choice selection
+tui_select_menu =: dyad define
+  NB. x = prompt string, y = list of choices (boxed strings)
+  NB. returns the index of selected item, or _1 if aborted
+  curs 0
+  sel =. 0
+  st  =. 0
+  h =. 10 <. #y
+  w =. TUI_COLS
+  
+  if. 0 = #y do. _1 return. end.
+
+  NB. Expand input pane to fit menu
+  TUI_MENU_H =: h + 1
+  tui_redraw''
+
+  while. 1 do.
+    if. -. keyp 0 do.
+      oh =. out_h''
+      ih =. input_h 0
+      menu_y =. oh + ih + 1
+      
+      goxy 0, menu_y
+      ceol''
+      tui_theme 'prompt'
+      puts ' ' , x
+      reset''
+      
+      for_i. i. h do.
+        goxy 0, menu_y + 1 + i
+        ceol''
+        idx =. st + i
+        if. idx = sel do. tui_theme 'status' else. reset'' end.
+        v =. > idx { y
+        if. idx = sel do. puts ' > ' , (w-4) {. v else. puts '   ' , (w-4) {. v end.
+        reset''
+      end.
+    end.
+    
+    k =. rkey''
+    if. k = 13 do.
+      TUI_MENU_H =: 0
+      tui_redraw''
+      sel return.
+    end.
+    if. k = 3 do.
+      TUI_MENU_H =: 0
+      tui_redraw''
+      _1 return.
+    end.
+    if. k = 27 do.
+      if. keyp 0 do.
+        k2 =. rkey''
+        if. k2 = 91 do.
+          if. keyp 0 do.
+            k3 =. rkey''
+            if. k3 = 60 do. NB. mouse event
+              seq =. ''
+              while. 1 do.
+                c =. a. {~ rkey''
+                if. c e. 'Mm' do. break. end.
+                seq =. seq , c
+              end.
+              parts =. ';' cut seq
+              btn =. 0 ". > 0 { parts
+              is_wheel_up =. (btn >: 64) *. (0 = btn 17 b. 3)
+              is_wheel_down =. (btn >: 64) *. (1 = btn 17 b. 3)
+              if. is_wheel_up do. sel =. 0 >. sel - 1
+              elseif. is_wheel_down do. sel =. ((#y)-1) <. sel + 1
+              end.
+            elseif. k3 = 65 do. sel =. 0 >. sel - 1 
+            elseif. k3 = 66 do. sel =. ((#y)-1) <. sel + 1 
+            end.
+          end.
+        end.
+      else.
+        TUI_MENU_H =: 0
+        tui_redraw''
+        _1 return.
+      end.
+    end.
+    
+    if. sel < st do. st =. sel end.
+    if. sel >: st + h do. st =. sel - (h - 1) end.
+  end.
+)
+
+NB. ============================================================
 NB. Keyboard handler
 tui_handle_key =: monad define
   k =. y
@@ -281,7 +384,7 @@ tui_handle_key =: monad define
 
   if. k e. 127 8 do.          NB. Backspace
     if. TUI_CURSOR>0 do.
-      TUI_INPUT =: (TUI_CURSOR-1){.TUI_INPUT , TUI_CURSOR}.TUI_INPUT
+      TUI_INPUT =: ((TUI_CURSOR-1){.TUI_INPUT) , (TUI_CURSOR}.TUI_INPUT)
       TUI_CURSOR =: TUI_CURSOR-1
       tui_draw_bottom ''
     end. return.
@@ -294,13 +397,15 @@ tui_handle_key =: monad define
   if. k=21 do.                NB. Ctrl-U (page up)
     oh=.out_h''
     TUI_SCROLL =: 0 >. TUI_SCROLL - (oh - 1)
-    tui_redraw'' return.
+    if. -. keyp 0 do. tui_redraw'' end.
+    return.
   end.
 
   if. k=4 do.                 NB. Ctrl-D (page down)
     oh=.out_h''
     TUI_SCROLL =: ((#TUI_OUTPUT) - oh) <. TUI_SCROLL + (oh - 1)
-    tui_redraw'' return.
+    if. -. keyp 0 do. tui_redraw'' end.
+    return.
   end.
 
   if. k=27 do.                NB. Escape sequence
@@ -321,13 +426,16 @@ tui_handle_key =: monad define
             btn =. 0 ". > 0 { parts
             my =. 0 ". > 2 { parts  NB. mouse Y (1-based)
             oh =. out_h''
-            NB. only scroll if wheel is in output area (row 1..oh)
-            if. (btn = 64) *. my <: oh do.
+            NB. scroll regardless of mouse position (only one scrollable region)
+            is_wheel_up =. (btn >: 64) *. (0 = btn 17 b. 3)
+            is_wheel_down =. (btn >: 64) *. (1 = btn 17 b. 3)
+            
+            if. is_wheel_up do.
               TUI_SCROLL =: 0 >. TUI_SCROLL - SCROLL_LINES
-              tui_redraw''
-            elseif. (btn = 65) *. my <: oh do.
+              if. -. keyp 0 do. tui_redraw'' end.
+            elseif. is_wheel_down do.
               TUI_SCROLL =: ((#TUI_OUTPUT) - oh) <. TUI_SCROLL + SCROLL_LINES
-              tui_redraw''
+              if. -. keyp 0 do. tui_redraw'' end.
             end.
             return.
           end.
@@ -349,17 +457,24 @@ tui_handle_key =: monad define
               TUI_INPUT =: '' [ TUI_CURSOR =: 0
             end.
             tui_redraw''
-          case. 67 do. if. TUI_CURSOR<#TUI_INPUT do. TUI_CURSOR+:=1 [ tui_draw_bottom '' end.
-          case. 68 do. if. TUI_CURSOR>0 do. TUI_CURSOR-:=1 [ tui_draw_bottom '' end.
+          case. 67 do. if. TUI_CURSOR<#TUI_INPUT do. tui_draw_bottom '' [ TUI_CURSOR =: TUI_CURSOR+1 end.
+          case. 68 do. if. TUI_CURSOR>0 do. tui_draw_bottom '' [ TUI_CURSOR =: TUI_CURSOR-1 end.
           case. 51 do.        NB. Delete
-            if. keyp 0 do. tilde=.rkey'' [ if. TUI_CURSOR<#TUI_INPUT do.
-              TUI_INPUT =: TUI_CURSOR{.TUI_INPUT , (TUI_CURSOR+1)}.TUI_INPUT
-              tui_redraw''
-            end. end.
-          case. 72 do. TUI_CURSOR=:0 [ tui_redraw''
-          case. 70 do. TUI_CURSOR=:#TUI_INPUT [ tui_redraw''
-          case. 53 do. if. keyp 0 do. tilde=.rkey'' [ tui_handle_key 21 end.
-          case. 54 do. if. keyp 0 do. tilde=.rkey'' [ tui_handle_key 4 end.
+            if. keyp 0 do. 
+              tilde=.rkey'' 
+              if. TUI_CURSOR<#TUI_INPUT do.
+                TUI_INPUT =: (TUI_CURSOR{.TUI_INPUT) , ((TUI_CURSOR+1)}.TUI_INPUT)
+                tui_redraw''
+              end. 
+            end.
+          case. 72 do. tui_redraw'' [ TUI_CURSOR=:0
+          case. 70 do. tui_redraw'' [ TUI_CURSOR=:#TUI_INPUT
+          case. 53 do. 
+            if. keyp 0 do. tilde=.rkey'' end. 
+            tui_handle_key 21
+          case. 54 do. 
+            if. keyp 0 do. tilde=.rkey'' end. 
+            tui_handle_key 4
           end.
         end.
       end.
@@ -391,6 +506,11 @@ tui_run =: monad define
 
   hist_load ''
   echo =: tui_echo
+  if. MOUSE_ON do. 
+    puts CSI,'?1000h'
+    puts CSI,'?1006h'
+  end.
+  
   'prompt' tui_print 'J-PI Agent (TUI2 – pure vt)'
   'muted'  tui_print 'Type a question, !cmd, /cmd, Ctrl+C exit, Ctrl+W wheel'
   tui_print ''

@@ -13,6 +13,27 @@ NB. Derive config from tables using i.
 API_URL =: > (<(({."1 API_URLS) i. <PROVIDER), 1) { API_URLS
 MODEL   =: > (<(({."1 MODELS)   i. <PROVIDER), 1) { MODELS
 
+CONFIG_MODEL_FILE =: (2!:5 'HOME') , '/.jpi_model'
+
+NB. Load saved model from disk if present
+load_model =: monad define
+  try.
+    if. 1!:4 :: 0: < CONFIG_MODEL_FILE do.
+      m =. 1!:1 < CONFIG_MODEL_FILE
+      if. 0 < #m do.
+        MODEL =: m -. 10 13 { a.    NB. strip newlines
+      end.
+    end.
+  catch. end.
+  ''
+)
+load_model ''
+
+NB. Save current model to disk
+save_model =: monad define
+  MODEL 1!:2 < CONFIG_MODEL_FILE
+)
+
 NB. Load API key from environment
 get_api_key =: monad define
   env =. > (<(({."1 ENV_KEYS) i. <PROVIDER), 1) { ENV_KEYS
