@@ -150,6 +150,9 @@ tui_draw_bottom =: monad define
   goxy 0, oh + ih + TUI_MENU_H + 2
   fgc 8
   pwd =. 1!:43 ''
+  home =. 2!:5 'HOME'
+  if. home -: (#home) {. pwd do. pwd =. '~' , (#home) }. pwd end.
+  
   branch =. git_branch ''
   fl1 =. ' ' , pwd
   if. 0 < #branch do. fl1 =. fl1 , ' (' , branch , ')' end.
