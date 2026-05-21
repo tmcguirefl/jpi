@@ -1,13 +1,16 @@
 NB. Session persistence — save/load conversation history
 NB. session.ijs
 
+require 'files'
+require 'dir'
+
 SESSION_DIR =: (2!:5 'HOME') , '/.jpi/sessions'
 ACTIVE_SESSION_FILE =: (2!:5 'HOME') , '/.jpi_active_session'
 
 CURRENT_SESSION =: 'default'
 try.
-  if. 1!:4 :: 0: < ACTIVE_SESSION_FILE do.
-    s =. 1!:1 < ACTIVE_SESSION_FILE
+  if. fexist ACTIVE_SESSION_FILE do.
+    s =. fread ACTIVE_SESSION_FILE
     if. 0 < #s do. CURRENT_SESSION =: s -. 10 13 { a. end.
   end.
 catch. end.
@@ -15,8 +18,8 @@ catch. end.
 NB. Ensure session directory exists
 ensure_session_dir =: monad define
   p1 =. (2!:5 'HOME') , '/.jpi'
-  if. (1!:4 :: _1: < p1) -: _1 do. 1!:5 < p1 end.
-  if. (1!:4 :: _1: < SESSION_DIR) -: _1 do. 1!:5 < SESSION_DIR end.
+  if. -. fexist p1 do. dircreate p1 end.
+  if. -. fexist SESSION_DIR do. dircreate SESSION_DIR end.
 )
 
 NB. Get full file path for a session name
@@ -28,36 +31,36 @@ NB. Save current HISTORY to file using J's binary representation
 save_session =: monad define
   ensure_session_dir ''
   path =. session_path CURRENT_SESSION
-  (3!:1 HISTORY) 1!:2 < path
+  (3!:1 HISTORY) fwrite path
   echo 'Session [' , CURRENT_SESSION , '] saved (' , (": #HISTORY) , ' messages).'
 )
 
 NB. Load HISTORY from file
 load_session =: monad define
   path =. session_path CURRENT_SESSION
-  if. -. (1!:4 :: _1: < path) -.@-: _1 do.
+  if. -. fexist path do.
     echo 'New session [' , CURRENT_SESSION , '] (no saved history found).'
     return.
   end.
-  HISTORY =: 3!:2 (1!:1 < path)
+  HISTORY =: 3!:2 (fread path)
   echo 'Session [' , CURRENT_SESSION , '] loaded (' , (": #HISTORY) , ' messages).'
 )
 
 NB. Delete saved session file
 delete_session =: monad define
   path =. session_path CURRENT_SESSION
-  if. -. (1!:4 :: _1: < path) -.@-: _1 do.
+  if. -. fexist path do.
     echo 'No saved session to delete for [' , CURRENT_SESSION , ']'
     return.
   end.
-  1!:55 < path
+  ferase path
   echo 'Session [' , CURRENT_SESSION , '] deleted.'
 )
 
 NB. List all interactive sessions
 list_sessions =: monad define
   ensure_session_dir ''
-  raw =. {."1 [ 1!:0 < SESSION_DIR , '/*.dat'
+  raw =. {."1 [ dir SESSION_DIR , '/*.dat'
   NB. drop the '.dat' suffix from filenames
   names =. 0 $ <''
   for_r. raw do.
@@ -93,7 +96,7 @@ switch_session =: monad define
   end.
   
   CURRENT_SESSION =: y
-  CURRENT_SESSION 1!:2 < ACTIVE_SESSION_FILE
+  CURRENT_SESSION fwrite ACTIVE_SESSION_FILE
   
   HISTORY =: 0$<''  NB. clear current active history
   load_session ''

@@ -37,10 +37,12 @@ HISTORY_MAX =: 500
 NB. Load history from file
 hist_load =: monad define
   try.
-    raw =. 1!:1 < HISTORY_FILE
-    if. 0 < #raw do.
-      if. LF ~: {: raw do. raw =. raw , LF end.
-      TUI_INPUT_HISTORY =: <;._2 raw
+    if. fexist HISTORY_FILE do.
+      raw =. fread HISTORY_FILE
+      if. 0 < #raw do.
+        if. LF ~: {: raw do. raw =. raw , LF end.
+        TUI_INPUT_HISTORY =: <;._2 raw
+      end.
     end.
   catch. end.
   TUI_HISTORY_IDX =: #TUI_INPUT_HISTORY
@@ -50,7 +52,7 @@ NB. Save history to file (keep last HISTORY_MAX entries)
 hist_save =: monad define
   h =. (- HISTORY_MAX <. #TUI_INPUT_HISTORY) {. TUI_INPUT_HISTORY
   txt =. ; h ,each <LF
-  txt 1!:2 < HISTORY_FILE
+  txt fwrite HISTORY_FILE
 )
 TUI_RUNNING =: 1
 MOUSE_ON =: 1      NB. mouse wheel tracking state

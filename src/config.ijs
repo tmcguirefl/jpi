@@ -1,6 +1,8 @@
 NB. Configuration
 NB. config.ijs
 
+require 'files'
+
 NB. Provider: 'openrouter' or 'anthropic'
 PROVIDER =: 'openrouter'
 
@@ -18,8 +20,8 @@ CONFIG_MODEL_FILE =: (2!:5 'HOME') , '/.jpi_model'
 NB. Load saved model from disk if present
 load_model =: monad define
   try.
-    if. 1!:4 :: 0: < CONFIG_MODEL_FILE do.
-      m =. 1!:1 < CONFIG_MODEL_FILE
+    if. fexist CONFIG_MODEL_FILE do.
+      m =. fread CONFIG_MODEL_FILE
       if. 0 < #m do.
         MODEL =: m -. 10 13 { a.    NB. strip newlines
       end.
@@ -31,7 +33,7 @@ load_model ''
 
 NB. Save current model to disk
 save_model =: monad define
-  MODEL 1!:2 < CONFIG_MODEL_FILE
+  MODEL fwrite CONFIG_MODEL_FILE
 )
 
 NB. Load API key from environment
