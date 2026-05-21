@@ -8,12 +8,16 @@ SESSION_DIR =: (2!:5 'HOME') , '/.jpi/sessions'
 ACTIVE_SESSION_FILE =: (2!:5 'HOME') , '/.jpi_active_session'
 
 CURRENT_SESSION =: 'default'
-try.
-  if. fexist ACTIVE_SESSION_FILE do.
-    s =. fread ACTIVE_SESSION_FILE
-    if. 0 < #s do. CURRENT_SESSION =: s -. 10 13 { a. end.
-  end.
-catch. end.
+init_session =: 3 : 0
+  try.
+    if. fexist ACTIVE_SESSION_FILE do.
+      s =. fread ACTIVE_SESSION_FILE
+      if. 0 < #s do. CURRENT_SESSION =: s -. 10 13 { a. end.
+    end.
+  catch. end.
+  ''
+)
+init_session ''
 
 NB. Ensure session directory exists
 ensure_session_dir =: monad define
