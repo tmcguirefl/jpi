@@ -157,6 +157,14 @@ clear_verb =: monad define
   clear_history ''
 )
 
+session_verb =: monad define
+  if. 0 = #y do.
+    list_sessions ''
+    return.
+  end.
+  switch_session y
+)
+
 save_verb =: monad define
   save_session ''
 )
@@ -212,7 +220,7 @@ unknown_verb =: monad define
 )
 
 NB. Boxed action names
-ACTIONS =: 'read';'run';'edit';'write';'ask';'clear';'save';'load';'model';'usage';'git';'grep';'find';'theme'
+ACTIONS =: 'read';'run';'edit';'write';'ask';'clear';'save';'load';'session';'model';'usage';'git';'grep';'find';'theme'
 
 NB. ----------------------------------------------------------------
 NB. Main agent verb
@@ -223,7 +231,7 @@ agent =: monad define
   idx =. ACTIONS i. < cmd
   if. idx < #ACTIONS do.
     NB. built-in command
-    (read_verb`run_verb`edit_verb`write_verb`ask_verb`clear_verb`save_verb`load_verb`model_verb`usage_verb`git_verb`grep_verb`find_verb`theme_verb) @. idx remainder
+    (read_verb`run_verb`edit_verb`write_verb`ask_verb`clear_verb`save_verb`load_verb`session_verb`model_verb`usage_verb`git_verb`grep_verb`find_verb`theme_verb) @. idx remainder
   elseif. is_ext_command cmd do.
     NB. extension command
     cmd ext_exec_command remainder

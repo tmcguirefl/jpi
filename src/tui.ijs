@@ -180,7 +180,7 @@ tui_draw_bottom =: monad define
   end.
   left =. left , scroll_pct
   if. MOUSE_ON do. left =. left , ' [wheel]' end.
-  right =. MODEL , ' '
+  right =. '[' , CURRENT_SESSION , '] ' , MODEL , ' '
   pad =. 0 >. (w - 1) - ((#left) + #right)
   puts left , (pad # ' ') , right
   ceol''
