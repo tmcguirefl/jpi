@@ -23,6 +23,8 @@ http_post =: dyad define
     if. 0 < #API_KEY do. cmd =. cmd , ' -H "Authorization: Bearer ' , API_KEY , '"' end.
   case. 'ollama' do.
     if. 0 < #API_KEY do. cmd =. cmd , ' -H "Authorization: Bearer ' , API_KEY , '"' end.
+  case. 'tcm' do.
+    if. 0 < #API_KEY do. cmd =. cmd , ' -H "Authorization: Bearer ' , API_KEY , '"' end.
   case. 'anthropic' do.
     cmd =. cmd , ' -H "x-api-key: ' , API_KEY , '"'
     cmd =. cmd , ' -H "anthropic-version: 2023-06-01"'
@@ -56,6 +58,8 @@ http_post_async =: dyad define
   case. 'local' do.
     if. 0 < #API_KEY do. cmd =. cmd , ' -H "Authorization: Bearer ' , API_KEY , '"' end.
   case. 'ollama' do.
+    if. 0 < #API_KEY do. cmd =. cmd , ' -H "Authorization: Bearer ' , API_KEY , '"' end.
+  case. 'tcm' do.
     if. 0 < #API_KEY do. cmd =. cmd , ' -H "Authorization: Bearer ' , API_KEY , '"' end.
   case. 'anthropic' do.
     cmd =. cmd , ' -H "x-api-key: ' , API_KEY , '"'
