@@ -33,6 +33,90 @@ list_models =: monad define
   models_list =. models_list , < 'local/ollama  -  [Localhost 11434]'
   ids_list =. ids_list , < 'local/ollama'
   
+  NB. Fetch Google models if available
+  try.
+    if. 0 < # > 2!:5 'GEMINI_API_KEY' do.
+      echo 'Fetching models from Google...'
+      raw =. 2!:0 'curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=' , (> 2!:5 'GEMINI_API_KEY') , '"'
+      js  =. dec_json raw
+      err =. 'error' gethash_json js
+      if. _1 -: err do.
+        marr =. 'models' gethash_json js
+        if. marr -.@-: _1 do.
+          for_m. > marr do.
+            m =. > m
+            nm =. > 'name' gethash_json m
+            disp =. > 'displayName' gethash_json m
+            if. 'models/' -: 7 {. nm do. nm =. 7 }. nm end.
+            models_list =. models_list , < (nm , '  -  ' , disp)
+            ids_list =. ids_list , < nm
+          end.
+        end.
+      end.
+    end.
+  catch. end.
+
+  NB. Fetch local models if available
+  try.
+    if. 0 < # > 2!:5 'LOCAL_API_KEY' do.
+      echo 'Fetching models from Localhost 8080...'
+      raw =. 2!:0 'curl -s http://localhost:8080/v1/models'
+      js  =. dec_json raw
+      err =. 'error' gethash_json js
+      if. _1 -: err do.
+        marr =. 'data' gethash_json js
+        if. marr -.@-: _1 do.
+          for_m. > marr do.
+            m =. > m
+            id =. > 'id' gethash_json m
+            models_list =. models_list , < ('local/' , id , '  -  Local')
+            ids_list =. ids_list , < ('local/' , id)
+          end.
+        end.
+      end.
+    end.
+  catch. end.
+
+  try.
+    if. 0 < # > 2!:5 'OLLAMA_API_KEY' do.
+      echo 'Fetching models from Ollama...'
+      raw =. 2!:0 'curl -s http://localhost:11434/v1/models'
+      js  =. dec_json raw
+      err =. 'error' gethash_json js
+      if. _1 -: err do.
+        marr =. 'data' gethash_json js
+        if. marr -.@-: _1 do.
+          for_m. > marr do.
+            m =. > m
+            id =. > 'id' gethash_json m
+            models_list =. models_list , < ('ollama/' , id , '  -  Ollama')
+            ids_list =. ids_list , < ('ollama/' , id)
+          end.
+        end.
+      end.
+    end.
+  catch. end.
+
+  try.
+    if. 0 < # > 2!:5 'TCM_API_KEY' do.
+      echo 'Fetching models from TCM...'
+      raw =. 2!:0 'curl -s https://tcmcguire.servehttp.com/v1/models'
+      js  =. dec_json raw
+      err =. 'error' gethash_json js
+      if. _1 -: err do.
+        marr =. 'data' gethash_json js
+        if. marr -.@-: _1 do.
+          for_m. > marr do.
+            m =. > m
+            id =. > 'id' gethash_json m
+            models_list =. models_list , < ('tcm/' , id , '  -  TCM Hosted')
+            ids_list =. ids_list , < ('tcm/' , id)
+          end.
+        end.
+      end.
+    end.
+  catch. end.
+
   echo 'Fetching model list from OpenRouter...'
   
   NB. try to fetch OpenRouter models transparently as appendable backup list
