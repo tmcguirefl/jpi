@@ -17,6 +17,8 @@ http_post =: dyad define
   select. PROVIDER
   case. 'openrouter' do.
     cmd =. cmd , ' -H "Authorization: Bearer ' , API_KEY , '"'
+  case. 'google' do.
+    cmd =. cmd , ' -H "Authorization: Bearer ' , API_KEY , '"'
   case. 'anthropic' do.
     cmd =. cmd , ' -H "x-api-key: ' , API_KEY , '"'
     cmd =. cmd , ' -H "anthropic-version: 2023-06-01"'
@@ -44,6 +46,8 @@ http_post_async =: dyad define
   cmd =. cmd , ' -H "Content-Type: application/json"'
   select. PROVIDER
   case. 'openrouter' do.
+    cmd =. cmd , ' -H "Authorization: Bearer ' , API_KEY , '"'
+  case. 'google' do.
     cmd =. cmd , ' -H "Authorization: Bearer ' , API_KEY , '"'
   case. 'anthropic' do.
     cmd =. cmd , ' -H "x-api-key: ' , API_KEY , '"'

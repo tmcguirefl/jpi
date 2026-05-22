@@ -49,7 +49,7 @@ perform_compaction =: monad define
   all_msgs =. (< sys_msg) , chunk
   msgs_json =. _1 }. ; (,&',') each all_msgs
   
-  if. PROVIDER -: 'openrouter' do.
+  if. (PROVIDER -: 'openrouter') +. (PROVIDER -: 'google') do.
     payload =. '{"model":"' , MODEL , '","messages":[' , msgs_json , ']}'
   else.
     payload =. '{"model":"' , MODEL , '","max_tokens":1024,"messages":[' , msgs_json , ']}'
