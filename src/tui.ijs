@@ -3,13 +3,14 @@ NB. J-PI TUI2 — Pure vt.ijs escape-code TUI (from scratch)
 NB. Uses tangentstorm/j-kvm/vt definitions exclusively.
 NB. ============================================================
 
-require 'vendor/vt.ijs'   NB. vendored vt.ijs (macOS fixes included)
+srcdir =. 2!:5 'JPI_SRC'
+
+load srcdir , '/vendor/vt.ijs'   NB. vendored vt.ijs (macOS fixes included)
 
 coinsert 'vt'                     NB. bring all vt verbs into current scope
 
 NB. load the rest of the agent (theme, agent, etc.)
 NB. ensure we are in src/ so that agent.ijs and its loads can find siblings
-srcdir =. '/Users/tomdevel/jdev/jpi/src'   NB. absolute path (reliable)
 old =. 1!:43 ''
 1!:44 srcdir
 load 'agent.ijs'
