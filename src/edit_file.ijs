@@ -40,22 +40,33 @@ show_diff =: monad define
   echo C_HDR , '--- ' , fn , C_RES
   echo C_HDR , '+++ ' , fn , C_RES
   echo C_HDR , '@@ -' , (":start+1) , ',' , (":end_line-start) , ' @@' , C_RES
+  w =. try. TUI_COLS catch. 80 end.
+  w =. w - 1
+  
   NB. show context before
   for_i. start + i. line_num - start do.
-    echo ' ' , > i { lines
+    l =. > i { lines
+    if. w < #l do. l =. ((w-5) {. l) , '...' end.
+    echo ' ' , l
   end.
   NB. show removed lines
   for_o. old_lines do.
-    echo C_DEL , '-' , (> o) , C_RES
+    l =. > o
+    if. w < #l do. l =. ((w-10) {. l) , '...' end.
+    echo C_DEL , '-' , l , C_RES
   end.
   NB. show added lines
   for_n. new_lines do.
-    echo C_ADD , '+' , (> n) , C_RES
+    l =. > n
+    if. w < #l do. l =. ((w-10) {. l) , '...' end.
+    echo C_ADD , '+' , l , C_RES
   end.
   NB. show context after
   after_start =. line_num + #old_lines
   for_i. after_start + i. DIFF_CONTEXT <. (#lines) - after_start do.
-    echo ' ' , > i { lines
+    l =. > i { lines
+    if. w < #l do. l =. ((w-5) {. l) , '...' end.
+    echo ' ' , l
   end.
 )
 
