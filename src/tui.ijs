@@ -115,7 +115,8 @@ NB.   row oh+ih+2      = footer 1  (path + branch)
 NB.   row oh+ih+3      = footer 2  (tokens, msgs, model)
 tui_draw_bottom =: monad define
   curs 0                      NB. hide cursor during redraw
-  hw =. gethw''
+  hw =. 24 80
+  try. hw =. gethw'' catch. end.
   TUI_LINES =: 0{ hw
   TUI_COLS =: 1{ hw
   
@@ -232,7 +233,8 @@ tui_draw_bottom =: monad define
 NB. ============================================================
 NB. Scroll to bottom (called after new output is added)
 tui_scroll_bottom =: monad define
-  hw =. gethw''
+  hw =. 24 80
+  try. hw =. gethw'' catch. end.
   TUI_LINES =: 0{ hw
   TUI_COLS =: 1{ hw
   oh =. out_h''
@@ -246,7 +248,8 @@ NB. Full screen redraw — only the output pane is scrolled / redrawn.
 NB. Status bar + input line are left alone except for tui_draw_bottom.
 tui_redraw =: monad define
   curs 0                      NB. hide cursor during redraw
-  hw =. gethw''
+  hw =. 24 80
+  try. hw =. gethw'' catch. end.
   TUI_LINES =: 0{ hw
   TUI_COLS =: 1{ hw
   oh =. out_h''
@@ -591,7 +594,8 @@ tui_handle_key =: monad define
 NB. ============================================================
 NB. Main loop
 tui_run =: monad define
-  hw =. gethw''
+  hw =. 24 80
+  try. hw =. gethw'' catch. end.
   TUI_LINES =: 0{ hw
   TUI_COLS =: 1{ hw
   raw 1
@@ -617,7 +621,9 @@ tui_run =: monad define
 
   while. TUI_RUNNING do.
     k =. rkey''
-    try. tui_handle_key k catch. tui_redraw'' end.
+    try. tui_handle_key k catch. 
+      try. tui_redraw'' catch. end.
+    end.
   end.
 
   hist_save ''
