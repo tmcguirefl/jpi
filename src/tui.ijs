@@ -140,6 +140,18 @@ tui_draw_bottom =: monad define
   
   NB. If there is an active menu, we leave the blank space for it right here underneath the input
   NB. The menu logic itself draws into this space.
+  opts =. ac_options ''
+  if. 0 < #opts do.
+    menu_y =. oh + ih + 1
+    for_i. i. #opts do.
+      goxy 0, menu_y + i
+      ceol''
+      if. i = AC_SEL do. tui_theme 'status' else. reset'' end.
+      v =. > i { opts
+      if. i = AC_SEL do. puts ' > /' , v else. puts '   /' , v end.
+      reset''
+    end.
+  end.
 
   NB. ── row oh+ih+1...: bottom separator ──
   goxy 0, oh + ih + TUI_MENU_H + 1
@@ -374,13 +386,50 @@ tui_select_menu =: dyad define
   end.
 )
 
+AC_SEL =: 0
+ac_options =: monad define
+  if. 0 = #TUI_INPUT do. 0$<'' return. end.
+  if. '/' ~: {. TUI_INPUT do. 0$<'' return. end.
+  if. ' ' e. TUI_INPUT do. 0$<'' return. end.
+  w =. }. TUI_INPUT
+  r =. 0$<''
+  for_a. ACTIONS do.
+    opt =. > a
+    if. w -: (#w) {. opt do. r =. r , a end.
+  end.
+  r
+)
+
+update_ac_ui =: monad define
+  opts =. ac_options ''
+  prev_h =. TUI_MENU_H
+  TUI_MENU_H =: if. 0 < #opts do. 1 + #opts else. 0 end.
+  if. AC_SEL >: #opts do. AC_SEL =: 0 >. (#opts) - 1 end.
+  
+  if. prev_h ~: TUI_MENU_H do.
+    tui_redraw''
+  else.
+    tui_draw_bottom''
+  end.
+)
+
 NB. ============================================================
 NB. Keyboard handler
 tui_handle_key =: monad define
   k =. y
   if. k e. 10 13 do.          NB. Enter
+    opts =. ac_options ''
+    if. 0 < #opts do.
+      cmd =. '/' , (> AC_SEL { opts) , ' '
+      TUI_INPUT =: cmd
+      TUI_CURSOR =: #TUI_INPUT
+      update_ac_ui ''
+      return.
+    end.
+
     cmd =. TUI_INPUT
     TUI_INPUT =: '' [ TUI_CURSOR =: 0
+    update_ac_ui ''
     if. (cmd-:'exit')+.cmd-:'/exit' do. TUI_RUNNING=:0 return. end.
     tui_process cmd
     tui_redraw''
@@ -391,7 +440,7 @@ tui_handle_key =: monad define
     if. TUI_CURSOR>0 do.
       TUI_INPUT =: ((TUI_CURSOR-1){.TUI_INPUT) , (TUI_CURSOR}.TUI_INPUT)
       TUI_CURSOR =: TUI_CURSOR-1
-      tui_draw_bottom ''
+      update_ac_ui ''
     end. return.
   end.
 
@@ -446,22 +495,34 @@ tui_handle_key =: monad define
           end.
           select. k3
           case. 65 do.        NB. Up
-            if. TUI_HISTORY_IDX>0 do.
-              TUI_HISTORY_IDX =: TUI_HISTORY_IDX-1
-              TUI_INPUT =: >TUI_HISTORY_IDX{TUI_INPUT_HISTORY
-              TUI_CURSOR =: #TUI_INPUT
-              tui_redraw''
+            opts =. ac_options ''
+            if. 0 < #opts do.
+              AC_SEL =: 0 >. AC_SEL - 1
+              update_ac_ui''
+            else.
+              if. TUI_HISTORY_IDX>0 do.
+                TUI_HISTORY_IDX =: TUI_HISTORY_IDX-1
+                TUI_INPUT =: >TUI_HISTORY_IDX{TUI_INPUT_HISTORY
+                TUI_CURSOR =: #TUI_INPUT
+                update_ac_ui''
+              end.
             end.
           case. 66 do.        NB. Down
-            if. TUI_HISTORY_IDX < (#TUI_INPUT_HISTORY)-1 do.
-              TUI_HISTORY_IDX =: TUI_HISTORY_IDX+1
-              TUI_INPUT =: >TUI_HISTORY_IDX{TUI_INPUT_HISTORY
-              TUI_CURSOR =: #TUI_INPUT
+            opts =. ac_options ''
+            if. 0 < #opts do.
+              AC_SEL =: ((#opts)-1) <. AC_SEL + 1
+              update_ac_ui''
             else.
-              TUI_HISTORY_IDX =: #TUI_INPUT_HISTORY
-              TUI_INPUT =: '' [ TUI_CURSOR =: 0
+              if. TUI_HISTORY_IDX < (#TUI_INPUT_HISTORY)-1 do.
+                TUI_HISTORY_IDX =: TUI_HISTORY_IDX+1
+                TUI_INPUT =: >TUI_HISTORY_IDX{TUI_INPUT_HISTORY
+                TUI_CURSOR =: #TUI_INPUT
+              else.
+                TUI_HISTORY_IDX =: #TUI_INPUT_HISTORY
+                TUI_INPUT =: '' [ TUI_CURSOR =: 0
+              end.
+              update_ac_ui''
             end.
-            tui_redraw''
           case. 67 do. if. TUI_CURSOR<#TUI_INPUT do. tui_draw_bottom '' [ TUI_CURSOR =: TUI_CURSOR+1 end.
           case. 68 do. if. TUI_CURSOR>0 do. tui_draw_bottom '' [ TUI_CURSOR =: TUI_CURSOR-1 end.
           case. 51 do.        NB. Delete
@@ -491,7 +552,8 @@ tui_handle_key =: monad define
     ch =. k{a.
     TUI_INPUT =: (TUI_CURSOR{.TUI_INPUT),ch,(TUI_CURSOR}.TUI_INPUT)
     TUI_CURSOR =: TUI_CURSOR+1
-    tui_draw_bottom '' return.
+    update_ac_ui ''
+    return.
   end.
 )
 
