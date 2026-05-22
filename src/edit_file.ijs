@@ -20,20 +20,37 @@ show_diff =: monad define
   old_lines =. <;._2 old , LF -. {: old
   new_lines =. <;._2 new , LF -. {: new
   end_line =. (#lines) <. line_num + (#old_lines) + DIFF_CONTEXT
-  echo '--- ' , fn
-  echo '+++ ' , fn
-  echo '@@ -' , (":start+1) , ',' , (":end_line-start) , ' @@'
+  ESC =. 27{a.
+  
+  NB. attempt to look up theme colors if theme engine loaded
+  c_add =. '2'
+  c_del =. '1'
+  c_hdr =. '6'
+  try.
+    c_add =. ": {. theme_colors 'diff_add'
+    c_del =. ": {. theme_colors 'diff_del'
+    c_hdr =. ": {. theme_colors 'prompt'
+  catch. end.
+  
+  C_ADD =. ESC,'[38;5;',c_add,'m'
+  C_DEL =. ESC,'[38;5;',c_del,'m'
+  C_HDR =. ESC,'[38;5;',c_hdr,'m'
+  C_RES =. ESC,'[0m'
+  
+  echo C_HDR , '--- ' , fn , C_RES
+  echo C_HDR , '+++ ' , fn , C_RES
+  echo C_HDR , '@@ -' , (":start+1) , ',' , (":end_line-start) , ' @@' , C_RES
   NB. show context before
   for_i. start + i. line_num - start do.
     echo ' ' , > i { lines
   end.
   NB. show removed lines
   for_o. old_lines do.
-    echo '-' , > o
+    echo C_DEL , '-' , (> o) , C_RES
   end.
   NB. show added lines
   for_n. new_lines do.
-    echo '+' , > n
+    echo C_ADD , '+' , (> n) , C_RES
   end.
   NB. show context after
   after_start =. line_num + #old_lines
