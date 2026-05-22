@@ -26,15 +26,18 @@ show_diff =: monad define
   c_add =. '2'
   c_del =. '1'
   c_hdr =. '6'
+  c_ctx =. '8'
   try.
     c_add =. ": {. theme_colors 'diff_add'
     c_del =. ": {. theme_colors 'diff_del'
     c_hdr =. ": {. theme_colors 'prompt'
+    c_ctx =. ": {. theme_colors 'muted'
   catch. end.
   
   C_ADD =. ESC,'[38;5;',c_add,'m'
   C_DEL =. ESC,'[38;5;',c_del,'m'
   C_HDR =. ESC,'[38;5;',c_hdr,'m'
+  C_CTX =. ESC,'[38;5;',c_ctx,'m'
   C_RES =. ESC,'[0m'
   
   echo C_HDR , '--- ' , fn , C_RES
@@ -51,7 +54,7 @@ show_diff =: monad define
   for_i. start + i. line_num - start do.
     l =. > i { lines
     if. w < #l do. l =. ((w-10) {. l) , '...' end.
-    echo (C_HDR fmt_ln i + 1) , ' ' , l
+    echo (C_HDR fmt_ln i + 1) , C_CTX , ' ' , l , C_RES
   end.
   NB. show removed lines
   cur_old =. line_num
@@ -75,7 +78,7 @@ show_diff =: monad define
   for_i. after_start + i. DIFF_CONTEXT <. (#lines) - after_start do.
     l =. > i { lines
     if. w < #l do. l =. ((w-10) {. l) , '...' end.
-    echo (C_HDR fmt_ln cur_after + 1) , ' ' , l
+    echo (C_HDR fmt_ln cur_after + 1) , C_CTX , ' ' , l , C_RES
     cur_after =. cur_after + 1
   end.
 )
