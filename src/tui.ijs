@@ -407,11 +407,13 @@ update_ac_ui =: monad define
   opts =. ac_options ''
   h =. 6 <. #opts
   prev_h =. TUI_MENU_H
-  TUI_MENU_H =: if. 0 < h do. h else. 0 end.
+  if. 0 < h do. TUI_MENU_H =: h else. TUI_MENU_H =: 0 end.
   
   if. AC_SEL >: #opts do. AC_SEL =: 0 >. (#opts) - 1 end.
-  if. AC_SEL < AC_ST do. AC_ST =: AC_SEL end.
-  if. AC_SEL >: AC_ST + h do. AC_ST =: AC_SEL - (h - 1) end.
+  if. h > 0 do.
+    if. AC_SEL < AC_ST do. AC_ST =: AC_SEL end.
+    if. AC_SEL >: AC_ST + h do. AC_ST =: AC_SEL - (h - 1) end.
+  end.
   
   if. prev_h ~: TUI_MENU_H do.
     tui_redraw''
