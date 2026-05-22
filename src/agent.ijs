@@ -35,7 +35,8 @@ list_models =: monad define
   
   NB. Fetch Google models if available
   try.
-    if. 0 < # > 2!:5 'GEMINI_API_KEY' do.
+    k =. 2!:5 'GEMINI_API_KEY'
+    if. (2 = 3!:0 k) *. 0 < # k do.
       echo 'Fetching models from Google...'
       raw =. 2!:0 'curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=' , (> 2!:5 'GEMINI_API_KEY') , '"'
       js  =. dec_json raw
@@ -58,7 +59,8 @@ list_models =: monad define
 
   NB. Fetch local models if available
   try.
-    if. 0 < # > 2!:5 'LOCAL_API_KEY' do.
+    k =. 2!:5 'LOCAL_API_KEY'
+    if. (2 = 3!:0 k) *. 0 < # k do.
       echo 'Fetching models from Localhost 8080...'
       raw =. 2!:0 'curl -s http://localhost:8080/v1/models'
       js  =. dec_json raw
@@ -78,7 +80,8 @@ list_models =: monad define
   catch. end.
 
   try.
-    if. 0 < # > 2!:5 'OLLAMA_API_KEY' do.
+    k =. 2!:5 'OLLAMA_API_KEY'
+    if. (2 = 3!:0 k) *. 0 < # k do.
       echo 'Fetching models from Ollama...'
       raw =. 2!:0 'curl -s http://localhost:11434/v1/models'
       js  =. dec_json raw
@@ -98,7 +101,8 @@ list_models =: monad define
   catch. end.
 
   try.
-    if. 0 < # > 2!:5 'TCM_API_KEY' do.
+    k =. 2!:5 'TCM_API_KEY'
+    if. (2 = 3!:0 k) *. 0 < # k do.
       echo 'Fetching models from TCM...'
       raw =. 2!:0 'curl -s https://tcmcguire.servehttp.com/v1/models'
       js  =. dec_json raw
@@ -121,8 +125,9 @@ list_models =: monad define
   
   NB. try to fetch OpenRouter models transparently as appendable backup list
   try.
-    if. 0 < # > 2!:5 'OPENROUTER_API_KEY' do.
-      raw =. 2!:0 'curl -s -H "Authorization: Bearer ' , (> 2!:5 'OPENROUTER_API_KEY') , '" https://openrouter.ai/api/v1/models'
+    k =. 2!:5 'OPENROUTER_API_KEY'
+    if. (2 = 3!:0 k) *. 0 < # k do.
+      raw =. 2!:0 'curl -s -H "Authorization: Bearer ' , k , '" https://openrouter.ai/api/v1/models'
       js  =. dec_json raw
       err =. 'error' gethash_json js
       if. _1 -: err do.
