@@ -24,6 +24,16 @@ NB. Update networking configuration based on active MODEL
 update_config_state =: monad define
   PROVIDER =: infer_provider MODEL
   API_URL =: > (<(({."1 API_URLS) i. <PROVIDER), 1) { API_URLS
+  
+  NB. Allow environment variables to override endpoints for self-hosted LLMs
+  try.
+    if. PROVIDER -: 'local' do.
+      if. 0 < # > 2!:5 'LOCAL_API_URL' do. API_URL =: > 2!:5 'LOCAL_API_URL' end.
+    elseif. PROVIDER -: 'ollama' do.
+      if. 0 < # > 2!:5 'OLLAMA_API_URL' do. API_URL =: > 2!:5 'OLLAMA_API_URL' end.
+    end.
+  catch. end.
+
   env =. > (<(({."1 ENV_KEYS) i. <PROVIDER), 1) { ENV_KEYS
   try.
     key =. 2!:5 env
