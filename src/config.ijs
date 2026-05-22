@@ -40,10 +40,39 @@ update_config_state =: monad define
     key =. 2!:5 env
     if. 0 < #key do. API_KEY =: key return. end.
   catch. end.
+  try.
+    if. 0 = # API_KEY do.
+      name =. env , '_VAL'
+      if. 0 = 4!:0 <name do. API_KEY =: ". name return. end.
+    end.
+  catch. end.
   API_KEY =: ''
 )
 
+NB. Helper to check if an API key exists in env or config
+has_api_key =: monad define
+  k =. y , '_VAL'
+  env_k =. 2!:5 y
+  r =. (2 = 3!:0 env_k) *. 0 < # env_k
+  if. -. r do.
+    if. 0 = 4!:0 < k do.
+      v =. ". k
+      r =. (2 = 3!:0 v) *. 0 < # v
+    end.
+  end.
+  r
+)
+
+NB. Helper to get an API key
+get_api_key =: monad define
+  env_k =. 2!:5 y
+  if. (2 = 3!:0 env_k) *. 0 < # env_k do. env_k return. end.
+  k =. y , '_VAL'
+  if. 0 = 4!:0 < k do. ". k return. end.
+  ''
+)
 CONFIG_MODEL_FILE =: (2!:5 'HOME') , '/.jpi_model'
+CONFIG_PROVIDERS_FILE =: (2!:5 'HOME') , '/.jpi_providers'
 
 NB. Load saved model from disk if present
 load_model =: monad define
@@ -52,6 +81,29 @@ load_model =: monad define
       m =. fread CONFIG_MODEL_FILE
       if. 0 < #m do.
         MODEL =: m -. 10 13 { a.    NB. strip newlines
+      end.
+    end.
+    if. fexist CONFIG_PROVIDERS_FILE do.
+      prov =. fread CONFIG_PROVIDERS_FILE
+      if. 0 < #prov do.
+        lines =. <;._2 prov, (LF -. {: prov) # LF
+        for_l. lines do.
+          line =. dlb > l
+          if. 0 = #line do. continue. end.
+          if. '#' = {. line do. continue. end.
+          idx =. line i. '='
+          if. idx < #line do.
+            k =. dlb idx {. line
+            v =. dltb (idx+1) }. line
+            NB. Only set if env var not already present
+            if. 0 = # > 2!:5 k do.
+               NB. In J, setting env var requires calling out to shell or C. 
+               NB. For simplicity, we just store it in a global J var cache:
+               name =. k , '_VAL'
+               (name) =: v
+            end.
+          end.
+        end.
       end.
     end.
   catch. end.
