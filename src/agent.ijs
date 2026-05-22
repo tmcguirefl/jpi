@@ -225,9 +225,12 @@ ACTIONS =: 'read';'run';'edit';'write';'ask';'clear';'export';'import';'session'
 NB. ----------------------------------------------------------------
 NB. Main agent verb
 agent =: monad define
-  words =. chopstring y
+  raw =. dlb y
+  words =. chopstring raw
+  if. 0 = #words do. return. end.
   cmd =. tolower > {. words
-  remainder =. _1 }. ; (,&' ') each }. words
+  cmd_len =. # > {. words
+  remainder =. dlb cmd_len }. raw
   idx =. ACTIONS i. < cmd
   if. idx < #ACTIONS do.
     NB. built-in command
