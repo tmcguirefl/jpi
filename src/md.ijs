@@ -203,6 +203,11 @@ lstrip =: monad define
 
 parse_md =: monad define
   text =. ,y
+  NB. isolate thinking tags to their own lines for safe parser extraction
+  text =. text rplc '<think>';(LF,'<think>',LF);'</think>';(LF,'</think>',LF)
+  text =. text rplc '<thinking>';(LF,'<thinking>',LF);'</thinking>';(LF,'</thinking>',LF)
+  text =. text rplc '<thought>';(LF,'<thought>',LF);'</thought>';(LF,'</thought>',LF)
+
   NB. split into lines on LF
   if. LF ~: {: text do. text =. text , LF end.
   lines =. <;._2 text
@@ -212,10 +217,40 @@ parse_md =: monad define
   in_code =. 0
   code_lang =. ''
   code_buf =. 0$<''
+  in_think =. 0
+  think_buf =. 0$<''
 
   while. i < n do.
     line =. > i{lines
     raw =. line
+    stripped =. lstrip line
+
+    NB. thinking block toggle
+    if. ('<think>' -: stripped) +. ('<thinking>' -: stripped) +. ('<thought>' -: stripped) do.
+      if. in_think do.
+        NB. technically malformed if already in it, but close anyway
+        tokens =. tokens , < 'think' ; (<think_buf)
+      end.
+      in_think =. 1
+      think_buf =. 0$<''
+      i =. i+1
+      continue.
+    end.
+
+    if. ('</think>' -: stripped) +. ('</thinking>' -: stripped) +. ('</thought>' -: stripped) do.
+      if. in_think do.
+        tokens =. tokens , < 'think' ; (<think_buf)
+        in_think =. 0
+      end.
+      i =. i+1
+      continue.
+    end.
+
+    if. in_think do.
+      think_buf =. think_buf , < line
+      i =. i+1
+      continue.
+    end.
 
     NB. code fence toggle
     if. '```' starts line do.
@@ -302,6 +337,11 @@ parse_md =: monad define
   if. in_code do.
     tokens =. tokens , < 'code' ; code_lang ; (<code_buf)
   end.
+  
+  NB. close unclosed think block
+  if. in_think do.
+    tokens =. tokens , < 'think' ; (<think_buf)
+  end.
 
   tokens
 )
@@ -383,6 +423,18 @@ render_md =: monad define
       out =. out , '  ' , (render_inline dat) , LF
     case. 'quote' do.
       out =. out , BGDGRAY , LTGRAY , '> ' , ITALIC , (render_inline dat) , RESET , LF , LF
+    case. 'think' do.
+      tlines =. > 0 { dat
+      out =. out , DIM , ITALIC , '  (Thinking...)' , RESET , LF
+      for_tl. tlines do.
+        l =. > tl
+        if. 0 < #lstrip l do.
+          out =. out , DIM , '  | ' , l , RESET , LF
+        else.
+          out =. out , LF
+        end.
+      end.
+      out =. out , LF
     case. 'code' do.
       lang =. > 0 { dat
       clines =. > 1 { dat
