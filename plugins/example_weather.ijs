@@ -19,6 +19,7 @@ NB. ================================================================
 NB. Custom tool: weather (LLM can call this)
 weather_tool =: monad define
   NB. y = parsed JSON args from LLM
+  if. _1 -: 'city' gethash_json y do. 'ERROR: missing required parameter "city"' return. end.
   city =. > 'city' gethash_json y
   NB. in a real extension you'd call a weather API here
   'Weather for ' , city , ': sunny, 22C (example plugin - not real data)'

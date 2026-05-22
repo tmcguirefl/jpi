@@ -246,8 +246,9 @@ process_tool_calls =: monad define
       result =. exec_tool name ; < args
       echo 'Tool result: ' , 80 {. result
     catch.
-      tc_id =. 'unknown'
-      result =. 'ERROR: tool execution failed: ' , 13!:12 ''
+      err_msg =. 13!:12 ''
+      if. 0 = #tc_id do. tc_id =. 'unknown' end.
+      result =. 'ERROR: tool execution failed during parsing or validation: ' , err_msg
       echo result
     end.
     results =. results , < mk_tool_result tc_id ; result

@@ -23,6 +23,7 @@ exec_tool =: monad define
 )
 
 exec_read =: monad define
+  if. _1 -: 'path' gethash_json y do. 'ERROR: missing required parameter "path"' return. end.
   path =. > 'path' gethash_json y
   NB. optional offset and limit parameters
   offset =. 'offset' gethash_json y
@@ -35,6 +36,7 @@ exec_read =: monad define
 )
 
 exec_bash =: monad define
+  if. _1 -: 'command' gethash_json y do. 'ERROR: missing required parameter "command"' return. end.
   cmd =. > 'command' gethash_json y
   if. -. is_safe cmd do.
     'ERROR: command blocked for safety'
@@ -48,6 +50,9 @@ exec_bash =: monad define
 )
 
 exec_edit =: monad define
+  if. _1 -: 'path' gethash_json y do. 'ERROR: missing required parameter "path"' return. end.
+  if. _1 -: 'old_text' gethash_json y do. 'ERROR: missing required parameter "old_text"' return. end.
+  if. _1 -: 'new_text' gethash_json y do. 'ERROR: missing required parameter "new_text"' return. end.
   path =. > 'path' gethash_json y
   if. -. confirm_edit path do.
     'Cancelled by user.' return.
@@ -62,6 +67,8 @@ exec_edit =: monad define
 )
 
 exec_write =: monad define
+  if. _1 -: 'path' gethash_json y do. 'ERROR: missing required parameter "path"' return. end.
+  if. _1 -: 'content' gethash_json y do. 'ERROR: missing required parameter "content"' return. end.
   path =. > 'path' gethash_json y
   if. -. confirm_write path do.
     'Cancelled by user.' return.
