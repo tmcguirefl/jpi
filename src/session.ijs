@@ -28,25 +28,36 @@ ensure_session_dir =: monad define
 
 NB. Get full file path for a session name
 session_path =: monad define
-  SESSION_DIR , '/' , y , '.dat'
+  SESSION_DIR , '/' , y , '.jsonl'
 )
 
-NB. Save current HISTORY to file using J's binary representation
+NB. Save current HISTORY to file using JSONL format
 save_session =: monad define
   ensure_session_dir ''
   path =. session_path CURRENT_SESSION
-  (3!:1 HISTORY) fwrite path
+  payload =. ''
+  if. 0 < #HISTORY do.
+    payload =. ; (,&LF) each HISTORY
+  end.
+  payload fwrite path
   echo 'Session [' , CURRENT_SESSION , '] saved (' , (": #HISTORY) , ' messages).'
 )
 
-NB. Load HISTORY from file
+NB. Load HISTORY from jsonl file
 load_session =: monad define
   path =. session_path CURRENT_SESSION
   if. -. fexist path do.
     echo 'New session [' , CURRENT_SESSION , '] (no saved history found).'
     return.
   end.
-  HISTORY =: 3!:2 (fread path)
+  
+  raw =. fread path
+  if. 0 = #raw do.
+    HISTORY =: 0 $ <''
+  else.
+    if. LF ~: {: raw do. raw =. raw , LF end.
+    HISTORY =: <;._2 raw
+  end.
   echo 'Session [' , CURRENT_SESSION , '] loaded (' , (": #HISTORY) , ' messages).'
 )
 
@@ -64,13 +75,13 @@ delete_session =: monad define
 NB. List all interactive sessions
 list_sessions =: monad define
   ensure_session_dir ''
-  raw =. {."1 [ dir SESSION_DIR , '/*.dat'
-  NB. drop the '.dat' suffix from filenames
+  raw =. {."1 [ dir SESSION_DIR , '/*.jsonl'
+  NB. drop the '.jsonl' suffix from filenames
   names =. 0 $ <''
   for_r. raw do.
     n =. > r
-    if. '.dat' -: _4 {. n do.
-      names =. names , < _4 }. n
+    if. '.jsonl' -: _6 {. n do.
+      names =. names , < _6 }. n
     end.
   end.
   
