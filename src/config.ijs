@@ -11,9 +11,24 @@ API_URLS =: _2 ]\ 'openrouter';'https://openrouter.ai/api/v1/chat/completions';'
 ENV_KEYS =: _2 ]\ 'openrouter';'OPENROUTER_API_KEY';'anthropic';'ANTHROPIC_API_KEY';'google';'GEMINI_API_KEY'
 MODELS   =: _2 ]\ 'openrouter';'anthropic/claude-sonnet-4';'anthropic';'claude-sonnet-4-20250514';'google';'gemini-2.5-flash'
 
-NB. Derive config from tables using i.
-API_URL =: > (<(({."1 API_URLS) i. <PROVIDER), 1) { API_URLS
-MODEL   =: > (<(({."1 MODELS)   i. <PROVIDER), 1) { MODELS
+NB. Infer provider from the model string
+infer_provider =: monad define
+  if. 'claude-' -: 7 {. y do. 'anthropic' return. end.
+  if. 'gemini-' -: 7 {. y do. 'google' return. end.
+  'openrouter'   NB. fallback covers all 'org/model' formatted OpenRouter strings
+)
+
+NB. Update networking configuration based on active MODEL
+update_config_state =: monad define
+  PROVIDER =: infer_provider MODEL
+  API_URL =: > (<(({."1 API_URLS) i. <PROVIDER), 1) { API_URLS
+  env =. > (<(({."1 ENV_KEYS) i. <PROVIDER), 1) { ENV_KEYS
+  try.
+    key =. 2!:5 env
+    if. 0 < #key do. API_KEY =: key return. end.
+  catch. end.
+  API_KEY =: ''
+)
 
 CONFIG_MODEL_FILE =: (2!:5 'HOME') , '/.jpi_model'
 
@@ -27,24 +42,14 @@ load_model =: monad define
       end.
     end.
   catch. end.
-  ''
+  update_config_state ''
 )
 load_model ''
 
 NB. Save current model to disk
 save_model =: monad define
   MODEL fwrite CONFIG_MODEL_FILE
+  update_config_state ''
 )
-
-NB. Load API key from environment
-get_api_key =: monad define
-  env =. > (<(({."1 ENV_KEYS) i. <PROVIDER), 1) { ENV_KEYS
-  try.
-    key =. 2!:5 env
-    if. 0 < #key do. key return. end.
-  catch. end.
-  ''
-)
-API_KEY =: get_api_key ''
 
 echo 'config loaded. Provider: ' , PROVIDER , '  API_KEY length: ' , ": #API_KEY
