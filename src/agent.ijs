@@ -20,11 +20,11 @@ list_models =: monad define
   ids_list =. 0 $ <''
   
   NB. Inject primary native models
-  models_list =. models_list , < 'claude-3-7-sonnet-20250219  -  [Direct Anthropic API]'
+  models_list =. models_list , < 'anthropic/claude-3-7-sonnet-20250219  -  [Direct Anthropic API]'
   ids_list =. ids_list , < 'claude-3-7-sonnet-20250219'
-  models_list =. models_list , < 'gemini-2.5-flash  -  [Direct Google AI Studio]'
+  models_list =. models_list , < 'google/gemini-2.5-flash  -  [Direct Google AI Studio]'
   ids_list =. ids_list , < 'gemini-2.5-flash'
-  models_list =. models_list , < 'gemini-2.5-pro  -  [Direct Google AI Studio]'
+  models_list =. models_list , < 'google/gemini-2.5-pro  -  [Direct Google AI Studio]'
   ids_list =. ids_list , < 'gemini-2.5-pro'
   models_list =. models_list , < 'tcm/llama.cpp9270  -  [tcmcguire.servehttp.com]'
   ids_list =. ids_list , < 'tcm/llama.cpp9270'
@@ -48,7 +48,7 @@ list_models =: monad define
             nm =. > 'name' gethash_json m
             disp =. > 'displayName' gethash_json m
             if. 'models/' -: 7 {. nm do. nm =. 7 }. nm end.
-            models_list =. models_list , < (nm , '  -  ' , disp)
+            models_list =. models_list , < ('google/' , nm , '  -  ' , disp)
             ids_list =. ids_list , < nm
           end.
         end.
@@ -136,13 +136,17 @@ list_models =: monad define
             namev =. 'name' gethash_json m
             if. namev -.@-: _1 do. name =. > namev end.
             
-            models_list =. models_list , < (id , '  -  ' , name)
+            models_list =. models_list , < ('openrouter/' , id , '  -  ' , name)
             ids_list =. ids_list , < id
           end.
         end.
       end.
     end.
   catch. end.
+
+  sort_idx =. /: models_list
+  models_list =. sort_idx { models_list
+  ids_list =. sort_idx { ids_list
 
   if. 3 = 4!:0 <'tui_select_menu' do.
     sel_idx =. 'Select a model:' tui_select_menu models_list
