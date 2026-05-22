@@ -38,12 +38,16 @@ update_config_state =: monad define
   env =. > (<(({."1 ENV_KEYS) i. <PROVIDER), 1) { ENV_KEYS
   try.
     key =. 2!:5 env
-    if. 0 < #key do. API_KEY =: key return. end.
+    if. (2 = 3!:0 key) *. 0 < #key do. API_KEY =: key return. end.
   catch. end.
   try.
     if. 0 = # API_KEY do.
       name =. env , '_VAL'
-      if. 0 = 4!:0 <name do. API_KEY =: ". name return. end.
+      if. 0 = 4!:0 <name do. 
+        val =. ". name
+        API_KEY =: ": val
+        return.
+      end.
     end.
   catch. end.
   API_KEY =: ''
@@ -68,7 +72,7 @@ get_api_key =: monad define
   env_k =. 2!:5 y
   if. (2 = 3!:0 env_k) *. 0 < # env_k do. env_k return. end.
   k =. y , '_VAL'
-  if. 0 = 4!:0 < k do. ". k return. end.
+  if. 0 = 4!:0 < k do. ": ". k return. end.
   ''
 )
 CONFIG_MODEL_FILE =: (2!:5 'HOME') , '/.jpi_model'
@@ -96,7 +100,8 @@ load_model =: monad define
             k =. dlb idx {. line
             v =. dltb (idx+1) }. line
             NB. Only set if env var not already present
-            if. 0 = # > 2!:5 k do.
+            env_k =. 2!:5 k
+            if. -. (2 = 3!:0 env_k) *. 0 < #env_k do.
                NB. In J, setting env var requires calling out to shell or C. 
                NB. For simplicity, we just store it in a global J var cache:
                name =. k , '_VAL'
