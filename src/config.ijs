@@ -41,7 +41,7 @@ update_config_state =: monad define
     if. (2 = 3!:0 key) *. 0 < #key do. API_KEY =: key return. end.
   catch. end.
   try.
-    if. 0 = # API_KEY do.
+    if. 1 do. NB. always check env var block if not already returned
       name =. env , '_VAL'
       if. 0 = 4!:0 <name do. 
         val =. ". name
@@ -50,7 +50,11 @@ update_config_state =: monad define
       end.
     end.
   catch. end.
-  API_KEY =: ''
+
+  if. 0 = # API_KEY do. API_KEY =: '' end.
+  if. 2 ~: 3!:0 API_KEY do. API_KEY =: '' end.
+  if. '0' -: API_KEY do. API_KEY =: '' end.
+
 )
 
 NB. Helper to check if an API key exists in env or config
