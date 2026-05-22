@@ -371,7 +371,7 @@ render_md =: monad define
       color =. (level-1) { MAGENTA;GREEN;BLUE;YELLOW;BRCYAN;CYAN
       out =. out , (>color) , BOLD , (render_inline itokens) , RESET , LF , LF
     case. 'paragraph' do.
-      out =. out , (render_inline dat) , LF , LF
+      out =. out , (render_inline dat) , LF
     case. 'bullet' do.
       out =. out , '  ' , CYAN , BULLET , RESET , ' ' , (render_inline dat) , LF
     case. 'numbered' do.
