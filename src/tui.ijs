@@ -141,14 +141,16 @@ tui_draw_bottom =: monad define
   NB. If there is an active menu, we leave the blank space for it right here underneath the input
   NB. The menu logic itself draws into this space.
   opts =. ac_options ''
-  if. 0 < #opts do.
+  h =. 6 <. #opts
+  if. 0 < h do.
     menu_y =. oh + ih + 1
-    for_i. i. #opts do.
+    for_i. i. h do.
       goxy 0, menu_y + i
       ceol''
-      if. i = AC_SEL do. tui_theme 'status' else. reset'' end.
-      v =. > i { opts
-      if. i = AC_SEL do. puts ' > /' , v else. puts '   /' , v end.
+      idx =. AC_ST + i
+      if. idx = AC_SEL do. tui_theme 'status' else. reset'' end.
+      v =. > idx { opts
+      if. idx = AC_SEL do. puts ' > /' , v else. puts '   /' , v end.
       reset''
     end.
   end.
@@ -387,6 +389,7 @@ tui_select_menu =: dyad define
 )
 
 AC_SEL =: 0
+AC_ST =: 0
 ac_options =: monad define
   if. 0 = #TUI_INPUT do. 0$<'' return. end.
   if. '/' ~: {. TUI_INPUT do. 0$<'' return. end.
@@ -402,9 +405,13 @@ ac_options =: monad define
 
 update_ac_ui =: monad define
   opts =. ac_options ''
+  h =. 6 <. #opts
   prev_h =. TUI_MENU_H
-  TUI_MENU_H =: if. 0 < #opts do. 1 + #opts else. 0 end.
+  TUI_MENU_H =: if. 0 < h do. h else. 0 end.
+  
   if. AC_SEL >: #opts do. AC_SEL =: 0 >. (#opts) - 1 end.
+  if. AC_SEL < AC_ST do. AC_ST =: AC_SEL end.
+  if. AC_SEL >: AC_ST + h do. AC_ST =: AC_SEL - (h - 1) end.
   
   if. prev_h ~: TUI_MENU_H do.
     tui_redraw''
