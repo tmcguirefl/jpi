@@ -181,12 +181,15 @@ tui_draw_bottom =: monad define
   NB. ── row oh+ih+3: footer line 2 — tokens, msgs, scroll, model ──
   goxy 0, oh + ih + TUI_MENU_H + 3
   fgc 8
+  
+  fmt_k =. 3 : 'if. y > 999 do. (": <. y % 1000) , ''k'' else. ": y end.'
+  
   left =. ' '
   if. 0 < TOTAL_INPUT_TOKENS do.
-    left =. left , (utf8_md_ 16b2191) , (": TOTAL_INPUT_TOKENS) , ' '
+    left =. left , (utf8_md_ 16b2191) , (fmt_k TOTAL_INPUT_TOKENS) , ' '
   end.
   if. 0 < TOTAL_OUTPUT_TOKENS do.
-    left =. left , (utf8_md_ 16b2193) , (": TOTAL_OUTPUT_TOKENS) , ' '
+    left =. left , (utf8_md_ 16b2193) , (fmt_k TOTAL_OUTPUT_TOKENS) , ' '
   end.
   
   NB. add cost
@@ -194,20 +197,22 @@ tui_draw_bottom =: monad define
     left =. left , format_cost '' , ' '
   end.
   
+  left =. left , (": #HISTORY) , ' msgs '
+  
   NB. calculate exact REact context percent vs ceiling
   ctx_pct =. 0
   if. 0 < #HISTORY do.
-    ctx_pct =. <. 100 * (history_tokens '') % MAX_TOKENS
+    ht =. history_tokens ''
+    ctx_pct =. <. 100 * ht % MAX_TOKENS
     if. ctx_pct > 100 do. ctx_pct =. 100 end.
-    left =. left , (": ctx_pct) , '%ctx '
+    left =. left , 'Ctx:' , (fmt_k ht) , '/' , (fmt_k MAX_TOKENS) , ' (' , (": ctx_pct) , '%) '
   end.
   
-  left =. left , (": #HISTORY) , ' msgs'
   scroll_pct =. ''
   total =. #TUI_OUTPUT
   if. total > oh do.
     pct =. <. 100 * (TUI_SCROLL + oh) % total
-    scroll_pct =. ' ' , (": pct) , '%%'
+    scroll_pct =. ' [Scroll: ' , (": pct) , '%]'
   end.
   left =. left , scroll_pct
   if. MOUSE_ON do. left =. left , ' [wheel]' end.
