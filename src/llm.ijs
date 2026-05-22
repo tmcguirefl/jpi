@@ -162,6 +162,8 @@ llm_call =: monad define
   elapsed =. t1 - t0
   echo '  [' , (}: ": 0.01 * <. 100 * elapsed) , 's]'
   parsed =. dec_json raw
+  NB. Workaround for some Google API errors returning an array `[{error:...}]`
+  if. 1 = $$ parsed do. parsed =. > {. parsed end.
   track_usage parsed
   parsed
 )
