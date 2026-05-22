@@ -50,6 +50,8 @@ track_usage =: monad define
     in_cost =. 1.10 [ out_cost =. 4.40
   elseif. 'o1' +./@E. MODEL do.
     in_cost =. 15.0 [ out_cost =. 60.0
+  elseif. 'tcm/' +./@E. MODEL do.
+    in_cost =. 0.0 [ out_cost =. 0.0
   elseif. 'gemini-2.5-flash' +./@E. MODEL do.
     in_cost =. 0.07 [ out_cost =. 0.30
   elseif. 'gemini' +./@E. MODEL do.
