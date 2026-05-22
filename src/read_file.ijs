@@ -15,6 +15,7 @@ read_file =: monad define
   if. 2 < #args do. limit =. > 2 { args end.
   try.
     lines =. 'b' freads fn
+    if. lines -: _1 do. < 'ERROR: could not read ' , fn return. end.
     total =. # lines
     NB. clamp offset to valid range
     offset =. 1 >. offset <. total

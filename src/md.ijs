@@ -178,7 +178,10 @@ NB. helper: count leading chars c in string s
 count_leading =: dyad define
   s =. y [ c =. x
   n =. 0
-  while. (n < #s) *. c = n{s do. n =. n+1 end.
+  while. n < #s do.
+    if. c ~: n{s do. break. end.
+    n =. n+1
+  end.
   n
 )
 
@@ -269,11 +272,13 @@ parse_md =: monad define
     end.
 
     NB. unordered list: - item or * item or + item
-    if. ((2 <: #stripped) *. (({.stripped) e. '-*+') *. ' ' = 1{stripped) do.
-      content =. 2 }. stripped
-      tokens =. tokens , < 'bullet' ; (parse_inline content)
-      i =. i+1
-      continue.
+    if. 2 <: #stripped do.
+      if. (({.stripped) e. '-*+') *. ' ' = 1{stripped do.
+        content =. 2 }. stripped
+        tokens =. tokens , < 'bullet' ; (parse_inline content)
+        i =. i+1
+        continue.
+      end.
     end.
 
     NB. ordered list: 1. item etc
