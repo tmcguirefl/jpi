@@ -188,6 +188,20 @@ tui_draw_bottom =: monad define
   if. 0 < TOTAL_OUTPUT_TOKENS do.
     left =. left , (utf8_md_ 16b2193) , (": TOTAL_OUTPUT_TOKENS) , ' '
   end.
+  
+  NB. add cost
+  if. 0 < TOTAL_COST do.
+    left =. left , format_cost '' , ' '
+  end.
+  
+  NB. calculate exact REact context percent vs ceiling
+  ctx_pct =. 0
+  if. 0 < #HISTORY do.
+    ctx_pct =. <. 100 * (history_tokens '') % MAX_TOKENS
+    if. ctx_pct > 100 do. ctx_pct =. 100 end.
+    left =. left , (": ctx_pct) , '%ctx '
+  end.
+  
   left =. left , (": #HISTORY) , ' msgs'
   scroll_pct =. ''
   total =. #TUI_OUTPUT
