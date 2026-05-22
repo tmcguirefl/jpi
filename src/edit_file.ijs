@@ -44,30 +44,39 @@ show_diff =: monad define
   if. 0 = 4!:0 <'TUI_COLS' do. w =. TUI_COLS end.
   w =. w - 1
   
+  NB. Format line number gutter
+  fmt_ln =. 4 : '(x) , ((0 >. 4 - # ": y) # '' '') , (": y) , '' | '' , (27{a.) , ''[0m'''
+  
   NB. show context before
   for_i. start + i. line_num - start do.
     l =. > i { lines
-    if. w < #l do. l =. ((w-5) {. l) , '...' end.
-    echo ' ' , l
+    if. w < #l do. l =. ((w-10) {. l) , '...' end.
+    echo (C_HDR fmt_ln i + 1) , ' ' , l
   end.
   NB. show removed lines
+  cur_old =. line_num
   for_o. old_lines do.
     l =. > o
-    if. w < #l do. l =. ((w-10) {. l) , '...' end.
-    echo C_DEL , '-' , l , C_RES
+    if. w < #l do. l =. ((w-15) {. l) , '...' end.
+    echo (C_HDR fmt_ln cur_old + 1) , C_DEL , '-' , l , C_RES
+    cur_old =. cur_old + 1
   end.
   NB. show added lines
+  cur_new =. line_num
   for_n. new_lines do.
     l =. > n
-    if. w < #l do. l =. ((w-10) {. l) , '...' end.
-    echo C_ADD , '+' , l , C_RES
+    if. w < #l do. l =. ((w-15) {. l) , '...' end.
+    echo (C_HDR fmt_ln cur_new + 1) , C_ADD , '+' , l , C_RES
+    cur_new =. cur_new + 1
   end.
   NB. show context after
   after_start =. line_num + #old_lines
+  cur_after =. line_num + #new_lines
   for_i. after_start + i. DIFF_CONTEXT <. (#lines) - after_start do.
     l =. > i { lines
-    if. w < #l do. l =. ((w-5) {. l) , '...' end.
-    echo ' ' , l
+    if. w < #l do. l =. ((w-10) {. l) , '...' end.
+    echo (C_HDR fmt_ln cur_after + 1) , ' ' , l
+    cur_after =. cur_after + 1
   end.
 )
 
