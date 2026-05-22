@@ -288,6 +288,8 @@ tui_echo =: monad define
   if. 'Tool call:' +./@E. y do. 'tool'  tui_print y return. end.
   if. 'ERROR'      +./@E. y do. 'error' tui_print y return. end.
   if. 'Asking LLM' +./@E. y do. 'muted' tui_print y return. end.
+  if. 'Compacting' +./@E. y do. 'muted' tui_print y return. end.
+  if. 'Context '   +./@E. y do. 'muted' tui_print y return. end.
   if. '  ['        +./@E. y do. 'muted' tui_print y return. end.
   NB. normal output: render markdown then split into lines for buffer
   rendered =. md_render_md_ y

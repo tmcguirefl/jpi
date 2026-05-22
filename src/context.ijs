@@ -17,22 +17,67 @@ history_tokens =: monad define
   +/ est_tokens&> HISTORY
 )
 
-NB. Trim oldest messages (keep system + most recent) if over budget
-NB. Preserves the first message (usually the first user msg) and trims from front
+NB. Trim oldest messages by summarizing them via background LLM call
 trim_history =: monad define
   total =. history_tokens ''
   if. total < MAX_TOKENS do. return. end.
-  NB. keep dropping oldest messages until under budget
-  NB. never drop below 4 messages (preserve recent context)
-  while. (history_tokens '') > MAX_TOKENS do.
-    if. 4 >: #HISTORY do.
-      echo 'WARNING: context still over limit after trimming'
-      return.
-    end.
-    NB. drop the oldest pair (user + assistant)
-    HISTORY =: 2 }. HISTORY
+  
+  if. 6 >: #HISTORY do.
+    echo 'WARNING: context over limit but too few messages to compact.'
+    return.
   end.
-  echo 'Context trimmed. Messages: ' , (": #HISTORY) , '  Est. tokens: ' , ": history_tokens ''
+  
+  sys_prompt =. 'You are a vital memory manager for an autonomous coding agent. Summarize the following early conversation turns into a dense paragraph. Retain all crucial facts, file paths discussed, constraints, code snippets requested, and decisions made. This summary will permanently replace the raw messages to save context space, so omit nothing that is needed for future reasoning. Output ONLY the summary.'
+  sys_msg =. 'system' mk_msg sys_prompt
+  
+  NB. Target leaving 20% headroom
+  target =. <. 0.8 * MAX_TOKENS
+  accum =. 0
+  idx =. 0
+  
+  NB. Find how many messages to compact from the beginning
+  while. (idx < #HISTORY) *. (total - accum) > target do.
+    accum =. accum + est_tokens > idx { HISTORY
+    idx =. idx + 1
+  end.
+  
+  NB. Need to compact an even number to keep user/assistant parity ideally, but not strictly required
+  if. 2 | idx do. idx =. idx + 1 end.
+  
+  NB. Don't compact the very last few active messages (short term memory)
+  if. idx > (#HISTORY) - 4 do. idx =. (#HISTORY) - 4 end.
+  if. idx < 2 do. return. end.
+
+  echo 'Compacting oldest ' , (": idx) , ' messages from context buffer...'
+  if. 3 = 4!:0 <'tui_redraw' do. tui_redraw'' end.
+  
+  chunk =. idx {. HISTORY
+  
+  NB. Build payload without tools
+  all_msgs =. (< sys_msg) , chunk
+  msgs_json =. _1 }. ; (,&',') each all_msgs
+  
+  if. PROVIDER -: 'openrouter' do.
+    payload =. '{"model":"' , MODEL , '","messages":[' , msgs_json , ']}'
+  else.
+    payload =. '{"model":"' , MODEL , '","max_tokens":1024,"messages":[' , msgs_json , ']}'
+  end.
+  
+  try.
+    resp =. llm_call payload
+    if. 0 = #resp do. echo 'WARNING: compaction failed (empty).' [ return. end.
+    if. has_error resp do. show_error resp [ return. end.
+    
+    summary =. get_or_content resp
+    if. 0 < #summary do.
+      new_msg =. 'assistant' mk_msg '<summary>' , LF , summary , LF , '</summary>'
+      HISTORY =: (< new_msg) , idx }. HISTORY
+      echo 'Context compacted seamlessly.'
+      if. 3 = 4!:0 <'tui_redraw' do. tui_redraw'' end.
+    end.
+  catch.
+    echo 'WARNING: Failed to execute background compaction.'
+  end.
 )
 
 echo 'context loaded.'
