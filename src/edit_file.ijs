@@ -40,7 +40,8 @@ show_diff =: monad define
   echo C_HDR , '--- ' , fn , C_RES
   echo C_HDR , '+++ ' , fn , C_RES
   echo C_HDR , '@@ -' , (":start+1) , ',' , (":end_line-start) , ' @@' , C_RES
-  w =. try. TUI_COLS catch. 80 end.
+  w =. 80
+  if. 0 = 4!:0 <'TUI_COLS' do. w =. TUI_COLS end.
   w =. w - 1
   
   NB. show context before
