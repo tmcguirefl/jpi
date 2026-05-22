@@ -7,12 +7,14 @@ NB. Provider: 'openrouter' or 'anthropic'
 PROVIDER =: 'openrouter'
 
 NB. Lookup tables (_2 ]\ turns flat list into 2-column table)
-API_URLS =: _2 ]\ 'openrouter';'https://openrouter.ai/api/v1/chat/completions';'anthropic';'https://api.anthropic.com/v1/messages';'google';'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
-ENV_KEYS =: _2 ]\ 'openrouter';'OPENROUTER_API_KEY';'anthropic';'ANTHROPIC_API_KEY';'google';'GEMINI_API_KEY'
-MODELS   =: _2 ]\ 'openrouter';'anthropic/claude-sonnet-4';'anthropic';'claude-sonnet-4-20250514';'google';'gemini-2.5-flash'
+API_URLS =: _2 ]\ 'openrouter';'https://openrouter.ai/api/v1/chat/completions';'anthropic';'https://api.anthropic.com/v1/messages';'google';'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';'local';'http://localhost:8080/v1/chat/completions';'ollama';'http://localhost:11434/v1/chat/completions'
+ENV_KEYS =: _2 ]\ 'openrouter';'OPENROUTER_API_KEY';'anthropic';'ANTHROPIC_API_KEY';'google';'GEMINI_API_KEY';'local';'LOCAL_API_KEY';'ollama';'OLLAMA_API_KEY'
+MODELS   =: _2 ]\ 'openrouter';'anthropic/claude-sonnet-4';'anthropic';'claude-sonnet-4-20250514';'google';'gemini-2.5-flash';'local';'local/llama-server';'ollama';'ollama/llama3'
 
 NB. Infer provider from the model string
 infer_provider =: monad define
+  if. 'ollama/' -: 7 {. y do. 'ollama' return. end.
+  if. 'local/' -: 6 {. y do. 'local' return. end.
   if. 'claude-' -: 7 {. y do. 'anthropic' return. end.
   if. 'gemini-' -: 7 {. y do. 'google' return. end.
   'openrouter'   NB. fallback covers all 'org/model' formatted OpenRouter strings

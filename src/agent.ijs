@@ -26,6 +26,10 @@ list_models =: monad define
   ids_list =. ids_list , < 'gemini-2.5-flash'
   models_list =. models_list , < 'gemini-2.5-pro  -  [Direct Google AI Studio]'
   ids_list =. ids_list , < 'gemini-2.5-pro'
+  models_list =. models_list , < 'local/llama-server  -  [Localhost 8080]'
+  ids_list =. ids_list , < 'local/llama-server'
+  models_list =. models_list , < 'local/ollama  -  [Localhost 11434]'
+  ids_list =. ids_list , < 'local/ollama'
   
   echo 'Fetching model list from OpenRouter...'
   

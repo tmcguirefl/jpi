@@ -40,6 +40,16 @@ get_tools =: monad define
       t =. 'parameters' mk_tool > d
       r =. r , ',' , '{"type":"function","function":' , t , '}'
     end.
+  case. 'local' do.
+    for_d. defs do.
+      t =. 'parameters' mk_tool > d
+      r =. r , ',' , '{"type":"function","function":' , t , '}'
+    end.
+  case. 'ollama' do.
+    for_d. defs do.
+      t =. 'parameters' mk_tool > d
+      r =. r , ',' , '{"type":"function","function":' , t , '}'
+    end.
   case. 'anthropic' do.
     for_d. defs do.
       r =. r , ',' , 'input_schema' mk_tool > d
@@ -85,7 +95,7 @@ build_payload =: monad define
   msgs =. _1 }. ; (,&',') each all
   
   NB. Do not send max_tokens for openrouter or google, it truncates some models naturally
-  if. (PROVIDER -: 'openrouter') +. (PROVIDER -: 'google') do.
+  if. (PROVIDER -: 'openrouter') +. (PROVIDER -: 'google') +. (PROVIDER -: 'local') +. (PROVIDER -: 'ollama') do.
     '{"model":"' , MODEL , '","tools":' , tools , ',"messages":[' , msgs , ']}'
   else.
     '{"model":"' , MODEL , '","max_tokens":4096,"tools":' , tools , ',"messages":[' , msgs , ']}'

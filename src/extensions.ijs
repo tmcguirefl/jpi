@@ -111,6 +111,12 @@ get_ext_tools_json =: monad define
     case. 'google' do.
       tool_json =. '{"name":"' , name , '","description":"' , desc , '","parameters":' , params , '}'
       r =. r , ',{"type":"function","function":' , tool_json , '}'
+    case. 'local' do.
+      tool_json =. '{"name":"' , name , '","description":"' , desc , '","parameters":' , params , '}'
+      r =. r , ',{"type":"function","function":' , tool_json , '}'
+    case. 'ollama' do.
+      tool_json =. '{"name":"' , name , '","description":"' , desc , '","parameters":' , params , '}'
+      r =. r , ',{"type":"function","function":' , tool_json , '}'
     case. 'anthropic' do.
       r =. r , ',{"name":"' , name , '","description":"' , desc , '","input_schema":' , params , '}'
     end.
