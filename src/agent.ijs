@@ -219,8 +219,18 @@ unknown_verb =: monad define
   echo 'Unknown command: ', y
 )
 
+compact_verb =: monad define
+  if. 0 = #y do.
+    NB. default carefully compacts half the history
+    idx =. <. (#HISTORY) % 2
+  else.
+    try. idx =. 0 ". y catch. idx =. 4 end.
+  end.
+  force_compact idx
+)
+
 NB. Boxed action names
-ACTIONS =: 'read';'run';'edit';'write';'ask';'clear';'export';'import';'session';'model';'usage';'git';'grep';'find';'theme'
+ACTIONS =: 'read';'run';'edit';'write';'ask';'clear';'export';'import';'session';'model';'compact';'usage';'git';'grep';'find';'theme'
 
 NB. ----------------------------------------------------------------
 NB. Main agent verb
@@ -234,7 +244,7 @@ agent =: monad define
   idx =. ACTIONS i. < cmd
   if. idx < #ACTIONS do.
     NB. built-in command
-    (read_verb`run_verb`edit_verb`write_verb`ask_verb`clear_verb`export_verb`import_verb`session_verb`model_verb`usage_verb`git_verb`grep_verb`find_verb`theme_verb) @. idx remainder
+    (read_verb`run_verb`edit_verb`write_verb`ask_verb`clear_verb`export_verb`import_verb`session_verb`model_verb`compact_verb`usage_verb`git_verb`grep_verb`find_verb`theme_verb) @. idx remainder
   elseif. is_ext_command cmd do.
     NB. extension command
     cmd ext_exec_command remainder

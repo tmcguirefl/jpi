@@ -18,6 +18,7 @@ run_agent =: monad define
   echo '  import                      - restore session from JSONL file'
   echo '  session [name]              - show/switch active session'
   echo '  model [name]                - show/switch model'
+  echo '  compact [N]                 - force summarize oldest N messages'
   echo '  usage                       - show token usage'
   echo '  git [cmd]                   - git status or pass-through'
   echo '  grep <pattern> [path]       - search files for pattern'
