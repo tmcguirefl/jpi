@@ -41,6 +41,8 @@ get_system_prompt =: monad define
   p =. p , ' write (create/overwrite files, auto-creates directories).'
   p =. p , ' Current working directory: ' , cwd , '.'
   p =. p , ' Be concise. Use tools when asked to perform file or system operations.'
+  p =. p , ' IMPORTANT: Before emitting any tool calls, enclose your reasoning about what to do next inside <thinking>...</thinking> XML tags.'
+  p =. p , ' First observe context, then output your <thinking>, and only then trigger the necessary tool.'
   p =. p , ' When executing J scripts via bash, use the $JBIN environment variable instead of calling jconsole directly.'
   p =. p , ' When editing, provide exact text that matches uniquely in the file.'
   NB. include directory listing
