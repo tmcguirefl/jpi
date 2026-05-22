@@ -1,6 +1,8 @@
 NB. File Reading Tool
 NB. read_file.ijs
 
+require 'files'
+
 NB. read_file: read lines from a file with optional offset and limit
 NB. y = filename, or filename;offset;limit (boxed)
 NB. offset is 1-indexed line number, limit is max lines to return
@@ -14,6 +16,9 @@ read_file =: monad define
   if. 1 < #args do. offset =. > 1 { args end.
   if. 2 < #args do. limit =. > 2 { args end.
   try.
+    if. -. fexist fn do.
+      < 'ERROR: File does not exist: ' , fn return.
+    end.
     lines =. 'b' freads fn
     if. lines -: _1 do. < 'ERROR: could not read ' , fn return. end.
     total =. # lines
