@@ -56,7 +56,7 @@ hist_save =: monad define
   txt fwrite HISTORY_FILE
 )
 TUI_RUNNING =: 1
-MOUSE_ON =: 1      NB. mouse wheel tracking state
+MOUSE_ON =: 0      NB. mouse wheel tracking off by default so terminal click+drag selects text
 SCROLL_LINES =: 3  NB. lines per wheel tick
 
 NB. Toggle mouse wheel capture on/off
@@ -614,7 +614,7 @@ tui_run =: monad define
   end.
   
   'prompt' tui_print 'J-PI Agent (TUI2 – pure vt)'
-  'muted'  tui_print 'Type a question, !cmd, /cmd, Ctrl+C exit, Ctrl+W wheel'
+  'muted'  tui_print 'Type a question, !cmd, /cmd, Ctrl+C exit. Mouse selection enabled; Ctrl+W toggles wheel scrolling.'
   tui_print ''
 
   tui_redraw''
