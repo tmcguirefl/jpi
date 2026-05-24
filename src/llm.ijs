@@ -5,6 +5,7 @@ NB. dec_json for parsing responses, enc_json_fixed for encoding.
 require 'convert/json'
 load 'enc_json_fixed.ijs'
 load 'http.ijs'
+load 'http_stream.ijs'
 load 'system_prompt.ijs'
 load 'context.ijs'
 load 'usage.ijs'
@@ -102,9 +103,9 @@ build_payload =: monad define
   
   NB. Do not send max_tokens for openrouter or google, it truncates some models naturally
   if. (PROVIDER -: 'openrouter') +. (PROVIDER -: 'google') +. (PROVIDER -: 'local') +. (PROVIDER -: 'ollama') +. (PROVIDER -: 'tcm') do.
-    '{"model":"' , MODEL , '","tools":' , tools , ',"messages":[' , msgs , ']}'
+    '{"model":"' , MODEL , '","stream":true,"tools":' , tools , ',"messages":[' , msgs , ']}'
   else.
-    '{"model":"' , MODEL , '","max_tokens":4096,"tools":' , tools , ',"messages":[' , msgs , ']}'
+    '{"model":"' , MODEL , '","stream":true,"max_tokens":4096,"tools":' , tools , ',"messages":[' , msgs , ']}'
   end.
 )
 
@@ -140,25 +141,10 @@ llm_call =: monad define
     '' return.
   end.
   t0 =. 6!:1 ''
-  if. 0 ~: 4!:0 <'win_output' do.
-    if. win_output ~: 0 do.
-      NB. TUI mode: async with spinner
-      API_URL http_post_async y
-      spin =. 0
-      while. -. http_async_done '' do.
-        spin =. tui_spinner spin
-        6!:3 (0.15)                   NB. sleep 150ms between frames
-      end.
-      tui_spinner_clear ''
-      raw =. http_async_read ''
-    else.
-      NB. plain mode: blocking
-      raw =. API_URL http_post y
-    end.
-  else.
-    NB. plain mode: blocking
-    raw =. API_URL http_post y
-  end.
+
+  NB. Execute the Libcurl Streaming Callback POST
+  raw =. API_URL http_stream_post y
+
   t1 =. 6!:1 ''
   elapsed =. t1 - t0
   echo '  [' , (}: ": 0.01 * <. 100 * elapsed) , 's]'
