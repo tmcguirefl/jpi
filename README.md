@@ -46,10 +46,50 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 | Left / Right | Move cursor |
 | Ctrl-U / PageUp | Scroll output up |
 | Ctrl-D / PageDown | Scroll output down |
-| Ctrl-W | Toggle mouse wheel scrolling |
+| Ctrl-W | Toggle mouse wheel scrolling vs. text selection |
 | Ctrl-C | Exit |
 | Home / End | Jump to start/end of input |
 | Delete | Delete character at cursor |
+
+## Mouse Operations
+
+J-PI starts with **mouse wheel scrolling enabled**, so you can scroll the
+output pane with your trackpad or scroll wheel right away. Because the
+TUI is capturing those mouse events to scroll, your terminal emulator
+does **not** receive them — which means click + drag will *not* select
+text in the output pane while wheel scrolling is on.
+
+### Switching between scroll mode and selection mode
+
+Use **`Ctrl-W`** to toggle the two modes:
+
+- **Wheel scrolling ON (default).** The status footer shows `[wheel]`.
+  Mouse wheel / trackpad scroll moves the output pane up and down.
+  Click-drag selection is captured by J-PI and ignored.
+- **Wheel scrolling OFF.** Press `Ctrl-W` once to disable mouse capture.
+  The `[wheel]` indicator disappears from the footer. Mouse wheel events
+  go back to the terminal emulator (which means the terminal will scroll
+  *its* scrollback rather than the J-PI output pane), and **click + drag
+  selects text** the way it does in any normal shell. Use Cmd-C (macOS)
+  or Ctrl-Shift-C (most Linux terminals) to copy.
+
+When you are done copying, press `Ctrl-W` again to restore wheel
+scrolling. The keyboard scroll bindings (`Ctrl-U`, `Ctrl-D`, `PageUp`,
+`PageDown`) work the same in both modes, so you never lose the ability
+to navigate the output pane.
+
+### Terminal emulator escape hatch
+
+Most terminal emulators also offer a modifier key that temporarily
+bypasses mouse capture without changing the application's state:
+
+- **macOS Terminal / iTerm2** — hold **Option (⌥)** while click-dragging
+  to select text even when wheel scrolling is on.
+- **GNOME Terminal / Konsole / xterm** — hold **Shift** while
+  click-dragging.
+- **Windows Terminal / WSL** — hold **Shift** while click-dragging.
+
+This is handy for one-off copies when you don't want to toggle modes.
 
 ## Commands
 
