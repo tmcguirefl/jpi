@@ -86,11 +86,9 @@ exec_j =: monad define
   code =. > 'code' gethash_json y
   try.
     out =. ". code
-    if. 0 < #out do.
-      ": out
-    else.
-      'Success.'
-    end.
+    type =. 3!:0 out
+    if. type e. 2 131072 262144 do. out return. end.
+    ": out
   catch.
     'ERROR: J execution failed: ' , 13!:12 ''
   end.
