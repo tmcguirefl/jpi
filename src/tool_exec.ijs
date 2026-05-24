@@ -18,7 +18,7 @@ exec_tool =: monad define
     (exec_read`exec_bash`exec_edit`exec_write`exec_j) @. idx input
   else.
     NB. try extension tools
-    ext_exec_tool name ; input
+    ext_exec_tool name ; < input
   end.
 )
 
