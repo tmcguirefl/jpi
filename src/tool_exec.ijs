@@ -5,7 +5,7 @@ load 'safety.ijs'
 load 'confirm.ijs'
 
 NB. Tool name lookup
-TOOLS =: 'read';'bash';'edit';'write'
+TOOLS =: 'read';'bash';'edit';'write';'j'
 
 NB. Execute a single tool call
 NB. y = tool_name ; input_object (parsed JSON, boxed)
@@ -15,7 +15,7 @@ exec_tool =: monad define
   idx =. TOOLS i. < name
   if. idx < #TOOLS do.
     NB. built-in tool
-    (exec_read`exec_bash`exec_edit`exec_write) @. idx input
+    (exec_read`exec_bash`exec_edit`exec_write`exec_j) @. idx input
   else.
     NB. try extension tools
     ext_exec_tool name ; input
@@ -78,6 +78,21 @@ exec_write =: monad define
     'Write successful.'
   else.
     'ERROR: write failed.'
+  end.
+)
+
+exec_j =: monad define
+  if. _1 -: 'code' gethash_json y do. 'ERROR: missing required parameter "code"' return. end.
+  code =. > 'code' gethash_json y
+  try.
+    out =. ". code
+    if. 0 < #out do.
+      ": out
+    else.
+      'Success.'
+    end.
+  catch.
+    'ERROR: J execution failed: ' , 13!:12 ''
   end.
 )
 

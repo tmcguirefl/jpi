@@ -15,6 +15,7 @@ READ_PARAMS  =: '{"type":"object","properties":{"path":{"type":"string","descrip
 RUN_PARAMS   =: '{"type":"object","properties":{"command":{"type":"string","description":"Bash command to execute"},"timeout":{"type":"number","description":"Timeout in seconds (default 30)"}},"required":["command"]}'
 EDIT_PARAMS  =: '{"type":"object","properties":{"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["path","old_text","new_text"]}'
 WRITE_PARAMS =: '{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}'
+J_PARAMS     =: '{"type":"object","properties":{"code":{"type":"string","description":"J code to evaluate"}},"required":["code"]}'
 
 NB. ----------------------------------------------------------------
 NB. Build a single tool JSON string
@@ -27,7 +28,7 @@ mk_tool =: dyad define
 NB. ----------------------------------------------------------------
 NB. Build tools JSON array for current provider
 get_tools =: monad define
-  defs =. (<'read';'Read file contents';READ_PARAMS) , (<'bash';'Execute shell command';RUN_PARAMS) , (<'edit';'Edit file with find/replace';EDIT_PARAMS) , (<'write';'Write content to file';WRITE_PARAMS)
+  defs =. (<'read';'Read file contents';READ_PARAMS) , (<'bash';'Execute shell command';RUN_PARAMS) , (<'edit';'Edit file with find/replace';EDIT_PARAMS) , (<'write';'Write content to file';WRITE_PARAMS) , (<'j';'Evaluate J programming language code directly in the agent interpreter session';J_PARAMS)
   r =. ''
   select. PROVIDER
   case. 'openrouter' do.
