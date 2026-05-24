@@ -44,6 +44,7 @@ get_system_prompt =: monad define
   p =. p , ' IMPORTANT: Before emitting any tool calls, enclose your reasoning about what to do next inside <thinking>...</thinking> XML tags.'
   p =. p , ' First observe context, then output your <thinking>, and only then trigger the necessary tool.'
   p =. p , ' When executing J scripts via bash, use the $JBIN environment variable instead of calling jconsole directly.'
+  p =. p , ' When multiple shell commands are independent of one another, combine them into a single bash tool call using shell backgrounding (e.g. `cmd1 & cmd2 & wait`, or `xargs -P`) so they run in parallel rather than issuing separate bash calls.'
   p =. p , ' When editing, provide exact text that matches uniquely in the file.'
   NB. include directory listing
   listing =. get_dir_listing ''
