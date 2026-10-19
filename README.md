@@ -28,11 +28,29 @@ Example — a one-shot exchange, exit at EOF:
 printf '%s\n' '{"cmd":"ask","prompt":"what is +/ i. 5"}' | ./jpi rpc
 ```
 
-Requires [J 9.x](https://www.jsoftware.com/download.htm) on PATH or at a
-common install location (`/Applications/j9.8/` on macOS, `~/j9.8/`,
-`/usr/local/bin/` on Linux). If jpi cannot find J's jconsole, set
-`JBIN` — copy `local/env.example` to `local/env.sh` (untracked) and
-export `JBIN=/path/to/jconsole` there.
+### Prerequisites checklist
+
+- [J 9.x](https://www.jsoftware.com/download.htm) on PATH or at a
+  common install location (`/Applications/j9.8/` on macOS, `~/j9.8/`,
+  `/usr/local/bin/` on Linux). If jpi cannot find J's jconsole, set
+  `JBIN` — copy `local/env.example` to `local/env.sh` (untracked) and
+  export `JBIN=/path/to/jconsole` there.
+- `bash` and `curl` (all request traffic goes through curl).
+- `perl` — the launcher uses one `perl -e 'alarm ...'` call to
+  time-box its is-this-J's-jconsole validation. Present by default on
+  macOS and most Linux; missing on minimal containers.
+- Terminal-size helper (optional but recommended for the TUI):
+  `src/vendor/winsize.c` must be compiled for your platform — the repo
+  ships source only:
+
+  ```bash
+  cd src/vendor
+  cc -shared -fPIC -o winsize.so winsize.c      # Linux
+  cc -dynamiclib -o winsize.so winsize.c        # macOS
+  ```
+
+  Without it the TUI still runs; window-size detection falls back and
+  resize handling just won't be exact.
 
 Put your provider API keys in `~/.jpi_providers`, one per line, as
 `NAME=VALUE`:
