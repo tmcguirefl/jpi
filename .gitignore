@@ -2,6 +2,17 @@
 *.ijs~
 *~
 
+# Editor backups / swap files (never commit these)
+*.backup
+*.backup[0-9]
+*.bak
+*.orig
+*.original
+*.broken
+*.working
+#*#
+.*.swp
+
 # OS generated files
 .DS_Store
 Thumbs.db
@@ -10,10 +21,33 @@ Thumbs.db
 *.tmp
 *.log
 
-# Local docs (J reference material)
-docs/
+# Debugging / fix scripts (keep them out of the repo)
+fix_*.py
+fix_*.sh
+*.patch
+COHERE_V2_FIX.md
+
+# Large binaries (do not commit PDFs, images, XML dumps)
+*.pdf
+*.xml
+*.jpg
+*.jpeg
+*.png
+*.gif
+pdbc*
+section_*.txt
 
 # API keys / secrets
 .env
 api_key.txt
 .jpi_providers
+.aider*
+
+# Agent shell working files
+.agent-shell/
+
+# Machine-local overrides (jconsole path, J-CORE manual path)
+local/env.sh
+
+# Compiled at build time; platform-specific (macOS/Linux differ)
+src/vendor/winsize.so

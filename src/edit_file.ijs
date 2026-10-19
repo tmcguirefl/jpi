@@ -1,6 +1,8 @@
 NB. Code Editing Tool
 NB. edit_file.ijs
 
+load 'utils.ijs'
+
 NB. Number of context lines to show around edits
 DIFF_CONTEXT =: 3
 
@@ -9,7 +11,7 @@ NB. y = filename ; oldstring ; newstring
 show_diff =: monad define
   'fn old new' =. y
   txt =. fread fn
-  lines =. <;._2 txt , LF -. {: txt
+  lines =. split_lines txt
   NB. find which line the old text starts on
   pos =. {. I. old E. txt
   NB. count newlines before pos to get line number
@@ -17,8 +19,8 @@ show_diff =: monad define
   NB. context range
   start =. 0 >. line_num - DIFF_CONTEXT
   NB. count lines in old and new text
-  old_lines =. <;._2 old , LF -. {: old
-  new_lines =. <;._2 new , LF -. {: new
+  old_lines =. split_lines old
+  new_lines =. split_lines new
   end_line =. (#lines) <. line_num + (#old_lines) + DIFF_CONTEXT
   ESC =. 27{a.
   
@@ -53,14 +55,14 @@ show_diff =: monad define
   NB. show context before
   for_i. start + i. line_num - start do.
     l =. > i { lines
-    if. w < #l do. l =. ((w-10) {. l) , '...' end.
+    l =. truncate_right l ; (w-10)
     echo (C_HDR fmt_ln i + 1) , C_CTX , ' ' , l , C_RES
   end.
   NB. show removed lines
   cur_old =. line_num
   for_o. old_lines do.
     l =. > o
-    if. w < #l do. l =. ((w-15) {. l) , '...' end.
+    l =. truncate_right l ; (w-15)
     echo (C_HDR fmt_ln cur_old + 1) , C_DEL , '-' , l , C_RES
     cur_old =. cur_old + 1
   end.
@@ -68,7 +70,7 @@ show_diff =: monad define
   cur_new =. line_num
   for_n. new_lines do.
     l =. > n
-    if. w < #l do. l =. ((w-15) {. l) , '...' end.
+    l =. truncate_right l ; (w-15)
     echo (C_HDR fmt_ln cur_new + 1) , C_ADD , '+' , l , C_RES
     cur_new =. cur_new + 1
   end.
@@ -77,7 +79,7 @@ show_diff =: monad define
   cur_after =. line_num + #new_lines
   for_i. after_start + i. DIFF_CONTEXT <. (#lines) - after_start do.
     l =. > i { lines
-    if. w < #l do. l =. ((w-10) {. l) , '...' end.
+    l =. truncate_right l ; (w-10)
     echo (C_HDR fmt_ln cur_after + 1) , C_CTX , ' ' , l , C_RES
     cur_after =. cur_after + 1
   end.

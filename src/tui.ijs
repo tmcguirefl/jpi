@@ -18,14 +18,32 @@ load 'theme.ijs'
 load 'md.ijs'
 1!:44 old
 
+NB. session.ijs init_session + load_session fired at LOAD time,
+NB. while cwd was still srcdir - so the session was named 'src'
+NB. and every folder resumed the src conversation. Re-init now
+NB. that the launch folder's cwd is restored.
+init_session ''
+load_session ''
+
 NB. dummy symbol so llm.ijs conditionals never see it as undefined
 win_output =: 0
 LF =: 10{a.
 
 NB. ============================================================
 NB. Global TUI state
-TUI_LINES =: 0
-TUI_COLS  =: 0
+NB. Size comes from the terminal NOW (was 0 0, which left out_h
+NB. negative before the first redraw: any verb reading TUI_LINES
+NB. before tui_redraw - tui_at_bottom, out_h in tests - got
+NB. garbage). gethw never throws (ioctl -> stty -> 24 80).
+NB. j9.8: control words are definition-body-only, so the guard
+NB. lives in a tiny definition.
+tui_hw0 =: 3 : 0
+  hw =. gethw ''
+  if. (2 ~: (# hw)) +. (0 e. hw) do. 24 80 else. hw end.
+)
+TUI_hw0 =. tui_hw0 ''
+TUI_LINES =: 0 { TUI_hw0
+TUI_COLS  =: 1 { TUI_hw0
 TUI_OUTPUT =: 0 $ <''
 TUI_SCROLL =: 0   NB. start at top
 TUI_INPUT  =: ''
@@ -34,6 +52,7 @@ TUI_HISTORY_IDX =: 0
 TUI_INPUT_HISTORY =: 0 $ <''
 HISTORY_FILE =: (2!:5 'HOME') , '/.jpi_history'
 HISTORY_MAX =: 500
+TUI_PREV_OH =: _  NB. previous output height; tracks oh changes for full redraw
 
 NB. Load history from file
 hist_load =: monad define
@@ -74,28 +93,50 @@ mouse_toggle =: monad define
 
 NB. Bottom area: separator, input (1+ lines), separator, footer1, footer2
 NB. Fixed chrome = 4 (sep + sep + footer1 + footer2)
-BOTTOM_CHROME =: 4
+NB. Layout is FIXED: menus draw as overlays on output rows, so the
+NB. bottom chrome never moves while typing.
+BOTTOM_CHROME =: 5
+
+NB. Max rows the input area may occupy; longer input scrolls a window
+INPUT_MAX_H =: 4
+
+NB. Logical input rows: split TUI_INPUT on LF, then wrap each
+NB. segment to w columns (wrap_utf8 is cell-accurate). Returns a
+NB. boxed list of display rows; cursor row/col derive from the
+NB. position of the cursor along this row sequence. This is what
+NB. multi-line input (Alt-Enter or Ctrl-J) needs: LF starts a new display row.
+input_rows =: monad define
+  w =. TUI_COLS
+  if. 0 = #TUI_INPUT do. ,< '' return. end.
+  NB. split on LF into segments (each later wrapped to w-1 cells).
+  NB. 'first',LF,'second' -> 2 rows. A trailing LF in the input is a
+  NB. REAL empty row (user pressed Ctrl-J at the end), so it is
+  NB. kept: we append LF only for the cut, and drop the appended
+  NB. artifact only when the input itself did not end in LF.
+  s0 =. TUI_INPUT
+  NB. <;._2 on s0,LF yields exactly the LF-separated segments:
+  NB. 'a',LF,'b' -> 2 rows; trailing LF -> final empty row is REAL
+  NB. (user pressed Ctrl-J at end of input), so nothing is dropped.
+  segs =. <;._2 s0 , LF
+  r =. 0 $ < ''
+  for_s. segs do.
+    seg =. > s
+    if. 0 = # seg do.
+      r =. r , < ''
+    else.
+      r =. r , ((w - 1) &wrap_utf8) seg
+    end.
+  end.
+  r
+)
 
 NB. How many screen rows the current input occupies
 input_h =: 3 : 0
-  w =. TUI_COLS
-  if. 0 = #TUI_INPUT do. 1 return. end.
-  >. (#TUI_INPUT) % w          NB. ceiling: text / width
+  r =. input_rows ''
+  1 >. INPUT_MAX_H <. # r
 )
 
-out_h =: 3 : 'TUI_LINES - (BOTTOM_CHROME + TUI_MENU_H + input_h 0)'
-
-NB. ============================================================
-NB. Helper: wrap long line to width x
-wrap_line =: dyad define
-  if. x >: #y do. ,< y return. end.
-  r =. 0 $ <''
-  while. x < #y do.
-    r =. r , < x {. y
-    y =. x }. y
-  end.
-  r , < y
-)
+out_h =: 3 : 'TUI_LINES - (BOTTOM_CHROME + input_h 0)'
 
 NB. ============================================================
 NB. Theme color application
@@ -106,19 +147,37 @@ tui_theme =: monad define
 )
 
 NB. ============================================================
-NB. Lightweight redraw of bottom 4 lines (avoids flicker)
+NB. Lightweight redraw of bottom chrome (avoids flicker)
 NB. Layout (dynamic):
 NB.   row oh           = separator
 NB.   row oh+1 .. +ih  = input line(s)   (ih = input_h 0)
 NB.   row oh+ih+1      = separator
 NB.   row oh+ih+2      = footer 1  (path + branch)
-NB.   row oh+ih+3      = footer 2  (tokens, msgs, model)
+NB.   row oh+ih+3      = footer 2  (tokens, msgs, scroll, input)
+NB.   row oh+ih+4      = footer 3  (session + model, always shown)
 tui_draw_bottom =: monad define
   curs 0                      NB. hide cursor during redraw
-  hw =. 24 80
-  try. hw =. gethw'' catch. end.
+  NB. Re-read terminal size on EVERY redraw. The old code cached
+  NB. TUI_LINES/TUI_COLS and only refreshed on full redraws, so a
+  NB. terminal resize (or a gethw failure at startup, when callers
+  NB. substituted the 24 80 default) froze the layout mid-size and
+  NB. the bottom chrome painted separator bars into the output
+  NB. pane on every keystroke. gethw is now a microsecond ioctl
+  NB. (see vendor/vt.ijs), so this costs nothing per keystroke.
+  NB. Re-read terminal size on EVERY redraw. The old code cached
+  NB. TUI_LINES/TUI_COLS and only refreshed on full redraws, so a
+  NB. terminal resize (or a gethw failure at startup, when callers
+  NB. substituted the 24 80 default) froze the layout mid-size and
+  NB. the bottom chrome painted separator bars into the output
+  NB. pane on every keystroke. gethw is now a microsecond ioctl
+  NB. (see vendor/vt.ijs), so this costs nothing per keystroke.
+  hw =. gethw''
   TUI_LINES =: 0{ hw
   TUI_COLS =: 1{ hw
+  if. (0 = TUI_LINES) +. (0 = TUI_COLS) do.
+    TUI_LINES =: 24
+    TUI_COLS =: 80
+  end.
   
   w =. TUI_COLS
   ih =. input_h 0
@@ -131,27 +190,41 @@ tui_draw_bottom =: monad define
   reset''
   ceol''
 
-  NB. ── row oh+1 .. oh+ih: input lines ──
-  visual =. TUI_INPUT
-  if. LF e. visual do. visual =. visual rplc LF ; (utf8_md_ 16b23ce) end. NB. visually represent LF as return symbol
-  if. CR e. visual do. visual =. visual -. CR end.
-  
+  NB. ── row oh+1 .. oh+ih: input lines (window follows cursor) ──
+  NB. Multi-line input (Alt-Enter / Ctrl-J): input_rows splits TUI_INPUT on LF
+  NB. and wraps each segment; the window shows the last ih rows but
+  NB. shifts up so the cursor's row is always visible.
+  irows =. input_rows ''
+  NB. find display row containing the cursor: walk segments,
+  NB. counting each row's characters plus its LF separator
+  crow =. (# irows) - 1
+  acc =. 0
+  for_i. i. # irows do.
+    rl =. # > i { irows
+    NB. row i covers chars [acc, acc+rl); cursor on/before end -> row i
+    if. TUI_CURSOR <: acc + rl do. crow =. i break. end.
+    acc =. acc + rl + 1           NB. +1 for the LF between rows
+  end.
+  base =. 0 >. (# irows) - ih
+  if. crow < base do. base =. crow end.
+  vis =. base }. irows
   for_r. i. ih do.
     goxy 0, oh + 1 + r
     reset''
-    chunk =. w {. (r * w) }. visual
-    puts chunk
+    if. r < # vis do.
+      puts > r { vis
+    end.
     ceol''
   end.
   
-  NB. If there is an active menu, we leave the blank space for it right here underneath the input
-  NB. The menu logic itself draws into this space.
+  NB. ── autocomplete menu: overlay drawn ABOVE the top separator ──
+  NB. (occupies output rows; tui_redraw repaints pane then this overlay)
   opts =. ac_options ''
   h =. 6 <. #opts
+  h =. h <. oh
   if. 0 < h do.
-    menu_y =. oh + ih + 1
     for_i. i. h do.
-      goxy 0, menu_y + i
+      goxy 0, (oh - h) + i
       ceol''
       idx =. AC_ST + i
       if. idx = AC_SEL do. tui_theme 'status' else. reset'' end.
@@ -161,15 +234,15 @@ tui_draw_bottom =: monad define
     end.
   end.
 
-  NB. ── row oh+ih+1...: bottom separator ──
-  goxy 0, oh + ih + TUI_MENU_H + 1
+  NB. ── row oh+ih+1: bottom separator ──
+  goxy 0, oh + ih + 1
   fgc 8
   puts w repstr_md_ BOX_H_md_
   reset''
   ceol''
 
   NB. ── row oh+ih+2: footer line 1 — path + branch ──
-  goxy 0, oh + ih + TUI_MENU_H + 2
+  goxy 0, oh + ih + 2
   fgc 8
   pwd =. 1!:43 ''
   home =. 2!:5 'HOME'
@@ -183,8 +256,8 @@ tui_draw_bottom =: monad define
   ceol''
   reset''
 
-  NB. ── row oh+ih+3: footer line 2 — tokens, msgs, scroll, model ──
-  goxy 0, oh + ih + TUI_MENU_H + 3
+  NB. ── row oh+ih+3: footer line 2 — tokens, msgs, scroll, mouse ──
+  goxy 0, oh + ih + 3
   fgc 8
   
   fmt_k =. 3 : 'if. y > 999 do. (": <. y % 1000) , ''k'' else. ": y end.'
@@ -204,45 +277,110 @@ tui_draw_bottom =: monad define
   
   left =. left , (": #HISTORY) , ' msgs '
   
-  NB. calculate exact REact context percent vs ceiling
+  NB. calculate exact context percent vs ceiling
   ctx_pct =. 0
   if. 0 < #HISTORY do.
-    ht =. history_tokens ''
+    ht =. history_tokens HISTORY
     ctx_pct =. <. 100 * ht % MAX_TOKENS
     if. ctx_pct > 100 do. ctx_pct =. 100 end.
     left =. left , 'Ctx:' , (fmt_k ht) , '/' , (fmt_k MAX_TOKENS) , ' (' , (": ctx_pct) , '%) '
   end.
   
   scroll_pct =. ''
-  total =. #TUI_OUTPUT
+  total =. # tui_wrapped ''
   if. total > oh do.
     pct =. <. 100 * (TUI_SCROLL + oh) % total
     scroll_pct =. ' [Scroll: ' , (": pct) , '%]'
   end.
   left =. left , scroll_pct
-  if. MOUSE_ON do. left =. left , ' [wheel]' end.
-  right =. '[' , CURRENT_SESSION , '] ' , MODEL , ' '
-  pad =. 0 >. (w - 1) - ((#left) + #right)
-  puts left , (pad # ' ') , right
+  if. -. TUI_FOLLOW do. left =. left , ' [pinned: Ctrl-L]' end.
+  NB. keep the hint short: footer2 already risks overflow on narrow screens
+  if. MOUSE_ON do. left =. left , ' [wheel]'
+  else. left =. left , ' [Alt-Enter=nl]' end.
+  NB. Footer 2 previously carried the model/session block on its
+  NB. right; it routinely overflowed the line (and before the
+  NB. vis_len/take_utf8 fix triggered the scroll-per-keystroke bar
+  NB. accumulation). The model info belongs to the chrome, so it
+  NB. now has its own row (footer 3) and is ALWAYS visible.
+  NB. hard cap at w-1 visible cells (last-column autowrap guard).
+  puts (w - 1) take_utf8 left
   ceol''
   reset''
 
-  NB. place cursor on correct input row + column
-  crow =. <. TUI_CURSOR % w      NB. which wrapped row
-  ccol =. w | TUI_CURSOR         NB. column within that row
-  goxy ccol, oh + 1 + crow
+  NB. ── row oh+ih+4: footer line 3 — session + model ──
+  goxy 0, oh + ih + 4
+  fgc 8
+  mdisp =. MODEL
+  if. THINK_ON do.
+    if. 0 < THINK_BUDGET do.
+      mdisp =. mdisp , ' (think ' , (": THINK_BUDGET) , ')'
+    else.
+      mdisp =. mdisp , ' (think on)'
+    end.
+  end.
+  f3left =. '[' , CURRENT_SESSION , '] '
+  f3right =. mdisp , ' '
+  pad3 =. 0 >. (w - 1) - ((vis_len f3left) + vis_len f3right)
+  NB. same last-column guard: footer 3 is the new bottom row
+  puts (w - 1) take_utf8 (f3left , (pad3 # ' ') , f3right)
+  ceol''
+  reset''
+
+  NB. place cursor on correct input row + column (relative to window base).
+  NB. crow was computed above by walking input_rows; the on-screen
+  NB. row is crow-base, and the column is the offset within that
+  NB. logical row (cursor minus the chars consumed by prior rows).
+  rbase =. 0
+  for_i. i. crow do.
+    rbase =. rbase + (# > i { irows) + 1
+  end.
+  ccol =. TUI_CURSOR - rbase
+  cscreen =. crow - base
+  goxy ccol , oh + 1 + cscreen
   curs 1                         NB. show cursor only now, on input line
 )
 
 NB. ============================================================
+NB. Wrap the (unwrapped) output buffer to the current width.
+NB. Returns a flat boxed list of wrapped rows; TUI_SCROLL indexes
+NB. into this list, not into TUI_OUTPUT.
+tui_wrapped =: monad define
+  ; (((TUI_COLS - 1)&wrap_utf8) each) TUI_OUTPUT
+)
+
+NB. ============================================================
 NB. Scroll to bottom (called after new output is added)
+NB. ============================================================
+NB. Follow mode. When FOLLOW is 1 (default), new output snaps the
+NB. view to the bottom. If the user has scrolled UP to read, new
+NB. output no longer yanks the view (it used to call
+NB. tui_scroll_bottom unconditionally); the view stays put and the
+NB. footer shows [pinned]. Scrolling manually back to the bottom
+NB. (or pressing Ctrl-L) resumes follow.
+TUI_FOLLOW =: 1
+
+NB. is the view currently at the bottom? (follow position)
+tui_at_bottom =: monad define
+  oh =. out_h''
+  total =. # tui_wrapped ''
+  (TUI_SCROLL + oh) >: total
+)
+
+NB. snap to bottom only if following (or if forced)
+tui_scroll_follow =: monad define
+  if. TUI_FOLLOW do.
+    tui_scroll_bottom ''
+  end.
+)
+
 tui_scroll_bottom =: monad define
-  hw =. 24 80
-  try. hw =. gethw'' catch. end.
+  NB. gethw never throws (ioctl -> stty -> 24 80; see vendor/vt.ijs)
+  hw =. gethw''
+  if. (2 ~: (# hw)) +. (0 e. hw) do. hw =. 24 80 end.
   TUI_LINES =: 0{ hw
   TUI_COLS =: 1{ hw
   oh =. out_h''
-  TUI_SCROLL =: 0 >. (#TUI_OUTPUT) - oh
+  TUI_SCROLL =: 0 >. (# tui_wrapped '') - oh
 )
 
 TUI_MENU_H =: 0
@@ -252,15 +390,18 @@ NB. Full screen redraw — only the output pane is scrolled / redrawn.
 NB. Status bar + input line are left alone except for tui_draw_bottom.
 tui_redraw =: monad define
   curs 0                      NB. hide cursor during redraw
-  hw =. 24 80
-  try. hw =. gethw'' catch. end.
+  NB. gethw never throws (ioctl -> stty -> 24 80; see vendor/vt.ijs)
+  hw =. gethw''
+  if. (2 ~: (# hw)) +. (0 e. hw) do. hw =. 24 80 end.
   TUI_LINES =: 0{ hw
   TUI_COLS =: 1{ hw
   oh =. out_h''
-  total =. #TUI_OUTPUT
+  TUI_PREV_OH =: oh           NB. track for update_ac_ui stale-bar detection
+  rows =. tui_wrapped ''
+  total =. # rows
   NB. clamp scroll to valid range
   TUI_SCROLL =: 0 >. (total - oh) <. TUI_SCROLL
-  visible =. oh {. TUI_SCROLL }. TUI_OUTPUT
+  visible =. oh {. TUI_SCROLL }. rows
 
   reset''
   NB. Only repaint/clear the output area (top oh rows)
@@ -279,13 +420,56 @@ tui_redraw =: monad define
 )
 
 NB. ============================================================
-NB. Add text to output buffer + auto-scroll to bottom
+NB. Add text to output buffer + auto-scroll to bottom.
+NB. Lines are stored UNWRAPPED (whole logical lines, with style
+NB. colors embedded). Wrapping happens at render time
+NB. (tui_wrapped) so a resize reflows the buffer correctly, and
+NB. ANSI/UTF-8 are never split mid-sequence (wrap_utf8).
+NB. Cap on in-TUI buffer: long sessions are read via /less or /nvim.
+TUI_MAX_LINES =: 2000
+
+NB. Output line styles -> SGR color (256-color palette, as in md.ijs)
+style_sgr =: monad define
+  select. y
+  case. 'error' do. CSI , '38;5;1m'
+  case. 'tool'  do. CSI , '38;5;6m'
+  case. 'muted' do. CSI , '38;5;8m'
+  case. do. ''
+  end.
+)
+
+NB. Unified-diff coloring. LLM output often quotes diffs (git diff,
+NB. my edit results). Lines starting with '+' get green, '-' red,
+NB. '@@' dim. Only applied to 'normal' (markdown) output lines that
+NB. aren't already styled, and only when the diff marker is at the
+NB. very start of the visible text (ANSI prefixes stripped first).
+diff_sgr =: monad define
+  bare =. strip_ansi y
+  if. (0 < # bare) *. ('+' = {. bare) do. CSI , '38;5;2m' return. end.
+  if. (0 < # bare) *. ('-' = {. bare) do. CSI , '38;5;1m' return. end.
+  if. (2 < # bare) *. ('@@' -: 2 {. bare) do. CSI , '38;5;8m' return. end.
+  ''
+)
+
 tui_print =: verb define
   'normal' tui_print y
 :
-  wrapped =. (TUI_COLS-1) wrap_line y
-  TUI_OUTPUT =: TUI_OUTPUT , wrapped
-  tui_scroll_bottom ''
+  for_l. split_lines y do.
+    line =. > l
+    if. (x -: 'normal') *. (0 < # diff_sgr line) do.
+      line =. (diff_sgr line) , line , (CSI , '0m')
+    else.
+      if. 0 < # style_sgr x do.
+        line =. (style_sgr x) , line , (CSI , '0m')
+      end.
+    end.
+    TUI_OUTPUT =: TUI_OUTPUT , < line
+  end.
+  NB. keep the buffer bounded
+  if. TUI_MAX_LINES < #TUI_OUTPUT do.
+    TUI_OUTPUT =: (- TUI_MAX_LINES) {. TUI_OUTPUT
+  end.
+  tui_scroll_follow ''
 )
 
 NB. ============================================================
@@ -308,6 +492,100 @@ tui_echo =: monad define
 )
 
 NB. ============================================================
+NB. Open TUI output in an external pager (auto-detects best available).
+NB. Temporarily leaves raw mode + disables mouse so the external
+NB. program owns the terminal. Restores TUI state on exit.
+NB. Suffixed with the per-process PID so concurrent jpi instances
+NB. don't clobber each other's pager/editor temp files.
+tui_tmp_suffix =: monad define
+  try.
+    '_' , _1 }. 2!:0 'echo $PPID'
+  catch.
+    '_' , ": ? 1e6
+  end.
+)
+TUI_TMP_SUFFIX  =: tui_tmp_suffix ''
+TUI_PAGER_FILE  =: jpath '~temp/jpi_pager' , TUI_TMP_SUFFIX , '.txt'
+TUI_EDIT_CTX    =: jpath '~temp/jpi_edit_ctx' , TUI_TMP_SUFFIX , '.txt'
+TUI_EDIT_PROMPT =: jpath '~temp/jpi_edit_prompt' , TUI_TMP_SUFFIX , '.txt'
+
+NB. Detect best available pager at load time.
+NB. Priority: $PAGER env var (if set to something useful), then less
+NB. (ANSI color support via -R), then nvim -R, then more.
+NB. $PAGER=cat is treated as unset — it's not an interactive pager.
+tui_detect_pager =: monad define
+  p =. > 2!:5 'PAGER'
+  if. (0 < #p) *. -. (<p) e. 'cat';'more' do. p return. end.
+  r =. 2!:0 'which less 2>/dev/null'
+  if. 0 < # r -. ' ' , LF do. 'less' return. end.
+  r =. 2!:0 'which nvim 2>/dev/null'
+  if. 0 < # r -. ' ' , LF do. 'nvim' return. end.
+  'more'
+)
+TUI_PAGER =: tui_detect_pager ''
+
+NB. Strip ANSI escape codes from a string (for nvim/more paths)
+NB. strip_ansi lives in utils.ijs now.
+
+tui_pager =: monad define
+  NB. y = line count (0 or empty = all)
+  lines =. TUI_OUTPUT
+  if. (0 < #y) *. (0 < 0 ". y) do.
+    lines =. (- (0 ". y) <. #lines) {. lines
+  end.
+  text =. ; lines ,each <LF
+  text fwrite TUI_PAGER_FILE
+  NB. leave raw mode, disable mouse, reset terminal for the pager
+  if. MOUSE_ON do. puts CSI,'?1000l' [ puts CSI,'?1006l' end.
+  raw 0
+  reset''
+  puts CR,LF
+  NB. spawn less via 2!:1 (spawn): inherits stdin/stdout/stderr directly,
+  NB. giving the pager full terminal access. 2!:0 would capture stdout
+  NB. via pipe and break interactive programs.
+  try.
+    2!:1 'less -R ' , TUI_PAGER_FILE
+  catch. end.
+  NB. restore TUI terminal state
+  raw 1
+  if. MOUSE_ON do. puts CSI,'?1000h' [ puts CSI,'?1006h' end.
+  tui_redraw ''
+)
+
+NB. ============================================================
+NB. Open nvim with a split: context buffer (top, read-only) +
+NB. prompt buffer (bottom, editable). :w to save the prompt, :q to
+NB. quit and send it to the LLM. If you :q without :w, nothing is sent.
+tui_edit =: monad define
+  NB. write context (TUI_OUTPUT, ANSI stripped) to file
+  text =. strip_ansi ; TUI_OUTPUT ,each <LF
+  text fwrite TUI_EDIT_CTX
+  NB. start with empty prompt file
+  '' fwrite TUI_EDIT_PROMPT
+  NB. leave raw mode, disable mouse, reset terminal
+  if. MOUSE_ON do. puts CSI,'?1000l' [ puts CSI,'?1006l' end.
+  raw 0
+  reset''
+  puts CR,LF
+  NB. nvim layout: prompt file is the main buffer, context split above
+  NB. as read-only. Explicit :w to save the prompt — no autowrite magic.
+  try.
+    2!:1 'nvim ' , TUI_EDIT_PROMPT , ' -c "above split ' , TUI_EDIT_CTX , '" -c "setlocal ro" -c "wincmd j" -c "resize 8"'
+  catch. end.
+  NB. read prompt file — if non-empty (user :w'd), send as LLM question
+  prompt =. fread TUI_EDIT_PROMPT
+  NB. restore TUI terminal state
+  raw 1
+  if. MOUSE_ON do. puts CSI,'?1000h' [ puts CSI,'?1006h' end.
+  tui_redraw ''
+  if. 0 < #prompt -. ' ' , LF , CR , TAB do.
+    prompt =. prompt -. CR
+    'prompt' tui_print '> ' , prompt
+    agent 'ask ' , prompt
+  end.
+)
+
+NB. ============================================================
 NB. Process command
 tui_process =: monad define
   if. 0=#y do. return. end.
@@ -315,9 +593,17 @@ tui_process =: monad define
   TUI_HISTORY_IDX =: #TUI_INPUT_HISTORY
   hist_save ''
   if. '/' = {.y do.
-    cmd =. }.y
+    NB. deb: the autocomplete selector inserts '/cmd ' (trailing
+    NB. space, for commands that take arguments) - argless commands
+    NB. must still match exactly, so strip the trailing blanks here
+    cmd =. deb }.y
     'prompt' tui_print '/ ',cmd
-    if. cmd -: 'exit' do. return. end.
+    if. cmd -: 'exit' do. TUI_RUNNING =: 0 return. end.
+    NB. local TUI commands (not passed to agent)
+    if. 'less' -: cmd do. tui_pager '' return. end.
+    if. 'less ' -: (5 {. cmd) do. tui_pager (5 }. cmd) return. end.
+    if. 'nvim' -: cmd do. tui_edit '' return. end.
+    if. 'retry' -: cmd do. tui_recall_last_prompt '' return. end.
     agent cmd
   elseif. '!' = {.y do.
     cmd =. }.y
@@ -327,11 +613,287 @@ tui_process =: monad define
     'prompt' tui_print '> ',y
     agent 'ask ',y
   end.
-  try. raw 1 catch. end.  NB. ensure bash tool executions didn't wreck the tty state
 )
 
 NB. ============================================================
+NB. Mid-run steering capture (non-blocking; called from llm_call's
+NB. spinner loop while an API request is in flight). Typed chars
+NB. compose in the NORMAL INPUT LINE (TUI_INPUT, drawn live by
+NB. tui_draw_bottom) - the Mistral Vibe flow: the message is
+NB. queued visibly in the input box, and Enter steers. Enter
+NB. commits the line to STEER_MSG (llm_ask injects it as a user
+NB. message at the next iteration boundary); an uncommitted draft
+NB. simply remains in the input box for the next prompt.
+NB.
+NB. Scrolling while an LLM call is in flight is ALSO handled here
+NB. (the old version skipped exactly 2 bytes after ESC and then
+NB. typed the REST of SGR wheel sequences into the input box,
+NB. and dropped Ctrl-U/D/L entirely - which made follow mode look
+NB. broken: the user scrolled, nothing scrolled, and output kept
+NB. snapping to the bottom because TUI_FOLLOW was never cleared).
+NB.
+NB. Recognized: wheel events (SGR ESC [ < btn ; x ; y M), Ctrl-U
+NB. (page up, pins), Ctrl-D (page down, resumes at bottom), Ctrl-L
+NB. (snap to bottom + resume), Enter (steer), Backspace, printable.
+NB. Anything else (bare ESC, arrow keys, etc.) is swallowed whole.
+
+tui_steer_poll =: monad define
+  while. keyp 0 do.
+    k =. rkey ''
+    NB. Ctrl-U: page up + pin
+    if. k = 21 do.
+      oh =. out_h ''
+      TUI_SCROLL =: 0 >. TUI_SCROLL - (oh - 1)
+      TUI_FOLLOW =: 0
+      if. -. keyp 0 do. tui_redraw '' end.
+      continue.
+    end.
+    NB. Ctrl-D: page down, resume follow at bottom
+    if. k = 4 do.
+      oh =. out_h ''
+      TUI_SCROLL =: ((# tui_wrapped '') - oh) <. TUI_SCROLL + (oh - 1)
+      if. tui_at_bottom '' do. TUI_FOLLOW =: 1 end.
+      if. -. keyp 0 do. tui_redraw '' end.
+      continue.
+    end.
+    NB. Ctrl-L: snap to bottom + resume follow
+    if. k = 12 do.
+      TUI_FOLLOW =: 1
+      tui_scroll_bottom ''
+      if. -. keyp 0 do. tui_redraw '' end.
+      continue.
+    end.
+    if. k = 27 do.                  NB. Escape sequence
+      NB. nothing queued after ESC: bare Esc, drop it
+      if. -. keyp 0 do. continue. end.
+      k2 =. rkey ''
+      if. k2 = 91 do.               NB. [
+        if. -. keyp 0 do. continue. end.
+        k3 =. rkey ''
+        if. k3 = 60 do.             NB. < : SGR mouse event
+          NB. consume params through the terminating M/m
+          seq =. ''
+          while. 1 do.
+            c =. a. {~ rkey ''
+            if. c e. 'Mm' do. break. end.
+            seq =. seq , c
+          end.
+          parts =. ';' cut seq
+          btn =. 0 ". > 0 { parts
+          tui_wheel_scroll btn
+        end.
+        NB. any other ESC [ x (arrows, etc.): rest swallowed with x
+      else.
+        NB. ESC followed by non-[ (Alt-Enter ESC CR etc.): drop the pair
+      end.
+      continue.
+    end.
+    if. k e. 10 13 do.               NB. Enter: steer
+      if. 0 < # TUI_INPUT do.
+        STEER_MSG =: TUI_INPUT
+        TUI_INPUT =: ''
+        TUI_CURSOR =: 0
+        'muted' tui_print '(steering queued: ' , STEER_MSG , ')'
+        if. -. keyp 0 do. tui_redraw '' end.
+      end.
+    elseif. k = 127 do.             NB. Backspace
+      TUI_INPUT =: }: TUI_INPUT
+      TUI_CURSOR =: # TUI_INPUT
+    elseif. 31 < k do.              NB. printable
+      TUI_INPUT =: TUI_INPUT , (a. {~ k)
+      TUI_CURSOR =: # TUI_INPUT
+    end.
+    if. -. keyp 0 do. tui_draw_bottom '' end.
+  end.
+  ''
+)
+
+NB. ============================================================
+NB. /retry - recall the last prompt into the input box for editing
+NB. (not auto-resend: edit it, then Enter submits it like any
+NB. prompt). Scans the typed-input history backwards for the last
+NB. entry that is not a /command or !command. Input history is
+NB. persistent (~/.jpi_history), so the recall survives restarts.
+
+tui_recall_last_prompt =: monad define
+  idx =. # TUI_INPUT_HISTORY
+  found =. ''
+  while. idx > 0 do.
+    idx =. idx - 1
+    e =. > idx { TUI_INPUT_HISTORY
+    if. ('/' ~: {. e) *. ('!' ~: {. e) do. found =. e break. end.
+  end.
+  if. 0 = # found do.
+    'muted' tui_print '(no previous prompt to retry)'
+    tui_redraw ''
+    '' return.
+  end.
+  TUI_INPUT =: found
+  TUI_CURSOR =: # TUI_INPUT
+  tui_redraw ''
+  ''
+)
+
+NB. ============================================================
+NB. TUI Filter Menu - type-to-filter selection (fzf-like).
+NB. For long lists (e.g. the model picker with hundreds of
+NB. HostYourAI entries): type a substring to narrow live, TAB
+NB. extends the filter to the common prefix of the matches
+NB. (bash-completion style), arrows move within the filtered
+NB. list, Enter selects, Backspace edits, ESC aborts.
+NB. x = prompt string, y = list of choices (boxed strings)
+NB. returns the index of the selected item IN THE ORIGINAL
+NB. LIST, or _1 if aborted.
+
+fm_match =: 4 : '+./ (tolower x) E. tolower y'  NB. x flt-in y
+
+NB. longest common prefix of boxed strings
+fm_lcp =: 3 : 0
+  if. 0 = # y do. '' return. end.
+  if. 1 = # y do. > {. y return. end.
+  n =. <./ # &> y
+  if. 0 = n do. '' return. end.
+  cut =. n {. &.> y             NB. each item cut to n chars (boxed)
+  m   =. > cut                  NB. open: n-char matrix, items as rows
+  c   =. |: m                   NB. transpose: rows = position columns
+  NB. a position differs iff its column-row has more than one
+  NB. distinct item. NEVER ~:/"1 here: insert is
+  NB. right-associative, so for three identical chars it
+  NB. gives a~:(a~:a)=1 - the fold trap from the manual's
+  NB. insert section.
+  d =. (1 < #@~.)"1 c
+  p =. d i. 1                  NB. first differing position = prefix length
+  p {. > {. y                  NB. TAKE the prefix ({. take, not { select)
+)
+
+tui_filter_menu =: dyad define
+  if. 0 = # y do. _1 return. end.
+  curs 0
+  flt =. ''
+  sel =. 0
+  st  =. 0
+  h =. 10 <. # y
+  w =. TUI_COLS
+
+  TUI_MENU_H =: h + 2
+  tui_redraw''
+
+  while. 1 do.
+    NB. recompute matches on the current filter
+    NB. BOND the filter as fm_match's left argument, then
+    NB. each: (flt&fm_match) is a monad, so each opens one
+    NB. item at a time. NEVER (flt fm_match each) y: each
+    NB. pairs x's ITEMS with y's items - and never parens
+    NB. around a noun-verb pair (the §3 fragment).
+    matches =. I. ; (flt&fm_match each) y
+    if. sel >: # matches do. sel =. 0 >. (# matches) - 1 end.
+    if. 0 < # matches do.
+      if. sel >: # matches do. sel =. (# matches) - 1 end.
+    end.
+    if. sel < st do. st =. sel end.
+    if. sel >: st + h do. st =. sel - h + 1 end.
+
+    if. -. keyp 0 do.
+      oh =. out_h''
+      mh =. h <. (oh - 2)
+      menu_y =. oh - mh - 2
+
+      NB. filter line: prompt + [filter] + counts
+      goxy 0, menu_y
+      ceol''
+      tui_theme 'prompt'
+      puts ' ' , x , ' [' , flt , ']  (' , (": # matches) , '/' , (": # y) , ')'
+      reset''
+      goxy 0, menu_y + 1
+      ceol''
+      fgc 8
+      puts ' type=filter  TAB=complete  Enter=select  BS=edit  arrows=move  ESC=abort'
+      reset''
+
+      for_i. i. mh do.
+        goxy 0, menu_y + 2 + i
+        ceol''
+        if. i < # matches do.
+          idx =. st + i
+          v =. > idx { matches { y
+          if. idx = sel do.
+            tui_theme 'status'
+            puts ' > ' , (w - 4) {. v
+          else.
+            reset''
+            puts '   ' , (w - 4) {. v
+          end.
+          reset''
+        end.
+      end.
+    end.
+
+    k =. rkey''
+    NB. printable: extend the filter
+    if. (k >: 32) *. (k <: 126) do.
+      flt =. flt , (a. {~ k)
+      sel =. 0
+      st =. 0
+      continue.
+    end.
+    NB. backspace
+    if. (k = 127) +. (k = 8) do.
+      flt =. }: flt
+      sel =. 0
+      st =. 0
+      continue.
+    end.
+    NB. TAB: extend to the common prefix of current matches
+    if. k = 9 do.
+      if. 0 < # matches do.
+        cp =. fm_lcp matches { y
+        if. (# flt) < # cp do.
+          flt =. cp
+          sel =. 0
+          st =. 0
+        end.
+      end.
+      continue.
+    end.
+    NB. Enter: select
+    if. k = 13 do.
+      TUI_MENU_H =: 0
+      tui_redraw''
+      if. 0 < # matches do. (sel { matches) return. end.
+      _1 return.
+    end.
+    NB. ESC: arrow sequences move; bare ESC aborts
+    if. k = 27 do.
+      if. keyp 0 do.
+        k2 =. rkey''
+        if. k2 = 91 do.
+          if. keyp 0 do.
+            k3 =. rkey''
+            if. k3 = 65 do. sel =. 0 >. sel - 1
+            elseif. k3 = 66 do. sel =. ((# matches) - 1) <. sel + 1
+            end.
+          end.
+        end.
+      else.
+        TUI_MENU_H =: 0
+        tui_redraw''
+        _1 return.
+      end.
+    end.
+    NB. Ctrl-C aborts (matches tui_select_menu)
+    if. k = 3 do.
+      TUI_MENU_H =: 0
+      tui_redraw''
+      _1 return.
+    end.
+  end.
+)
+
+
+NB. ============================================================
 NB. TUI Select Menu - Modal popup for choice selection
+NB. (arrow-key navigation; see tui_filter_menu above for the
+NB. type-to-filter variant used on long lists)
 tui_select_menu =: dyad define
   NB. x = prompt string, y = list of choices (boxed strings)
   NB. returns the index of selected item, or _1 if aborted
@@ -343,15 +905,15 @@ tui_select_menu =: dyad define
   
   if. 0 = #y do. _1 return. end.
 
-  NB. Expand input pane to fit menu
+  NB. Menu draws as an overlay on output rows above the bottom chrome
   TUI_MENU_H =: h + 1
   tui_redraw''
 
   while. 1 do.
     if. -. keyp 0 do.
       oh =. out_h''
-      ih =. input_h 0
-      menu_y =. oh + ih + 1
+      mh =. h <. (oh - 1)
+      menu_y =. oh - mh - 1
       
       goxy 0, menu_y
       ceol''
@@ -359,7 +921,7 @@ tui_select_menu =: dyad define
       puts ' ' , x
       reset''
       
-      for_i. i. h do.
+      for_i. i. mh do.
         goxy 0, menu_y + 1 + i
         ceol''
         idx =. st + i
@@ -426,6 +988,11 @@ ac_options =: monad define
   if. ' ' e. TUI_INPUT do. 0$<'' return. end.
   w =. }. TUI_INPUT
   r =. 0$<''
+  NB. include local TUI commands first (pager, nvim, retry, exit)
+  for_a. 'less';'nvim';'retry';'exit' do.
+    opt =. > a
+    if. w -: (#w) {. opt do. r =. r , a end.
+  end.
   for_a. ACTIONS do.
     opt =. > a
     if. w -: (#w) {. opt do. r =. r , a end.
@@ -445,10 +1012,49 @@ update_ac_ui =: monad define
     if. AC_SEL >: AC_ST + h do. AC_ST =: AC_SEL - (h - 1) end.
   end.
   
-  if. prev_h ~: TUI_MENU_H do.
+  NB. Full redraw when the menu height changed OR the output area
+  NB. height changed (input wrapped/unwrapped).  tui_draw_bottom
+  NB. alone cannot clear stale separator bars left in the output
+  NB. pane when oh shifts.
+  cur_oh =. out_h''
+  if. (prev_h ~: TUI_MENU_H) +. (TUI_PREV_OH ~: cur_oh) do.
+    TUI_PREV_OH =: cur_oh
     tui_redraw''
   else.
     tui_draw_bottom''
+    TUI_PREV_OH =: cur_oh
+  end.
+)
+
+NB. ============================================================
+NB. Insert a newline at the cursor (multi-line input). Shared by
+NB. Ctrl-J (byte 10) and Alt-Enter (ESC CR / ESC LF).
+tui_insert_nl =: monad define
+  TUI_INPUT =: (TUI_CURSOR {. TUI_INPUT) , LF , (TUI_CURSOR }. TUI_INPUT)
+  TUI_CURSOR =: TUI_CURSOR + 1
+  update_ac_ui ''
+)
+
+NB. ============================================================
+NB. Wheel scroll: shared by the main key handler and the mid-run
+NB. steering poll. y = SGR mouse button code (64 = wheel up,
+NB. 65 = wheel down). Respects follow mode: wheel up pins
+NB. (TUI_FOLLOW =: 0), wheel down reaching bottom resumes it.
+NB. Redraws only when no more input is queued.
+tui_wheel_scroll =: monad define
+  btn =. y
+  oh =. out_h ''
+  NB. scroll regardless of mouse position (only one scrollable region)
+  is_wheel_up =. (btn >: 64) *. (0 = btn 17 b. 3)
+  is_wheel_down =. (btn >: 64) *. (1 = btn 17 b. 3)
+  if. is_wheel_up do.
+    TUI_SCROLL =: 0 >. TUI_SCROLL - SCROLL_LINES
+    TUI_FOLLOW =: 0         NB. manual scroll: stop following
+    if. -. keyp 0 do. tui_redraw'' end.
+  elseif. is_wheel_down do.
+    TUI_SCROLL =: ((# tui_wrapped '') - oh) <. TUI_SCROLL + SCROLL_LINES
+    if. tui_at_bottom '' do. TUI_FOLLOW =: 1 end.
+    if. -. keyp 0 do. tui_redraw'' end.
   end.
 )
 
@@ -456,15 +1062,11 @@ NB. ============================================================
 NB. Keyboard handler
 tui_handle_key =: monad define
   k =. y
-  
-  if. k e. 10 13 do.          NB. Enter
-    if. TUI_PASTING do.
-      ch =. LF
-      TUI_INPUT =: (TUI_CURSOR{.TUI_INPUT) , ch , (TUI_CURSOR}.TUI_INPUT)
-      TUI_CURSOR =: TUI_CURSOR + 1
-      update_ac_ui ''
-      return.
-    end.
+  if. k = 10 do.              NB. Ctrl-J: insert newline (multi-line input)
+    tui_insert_nl ''
+    return.
+  end.
+  if. k = 13 do.              NB. Enter: send
     opts =. ac_options ''
     if. 0 < #opts do.
       cmd =. '/' , (> AC_SEL { opts) , ' '
@@ -495,16 +1097,25 @@ tui_handle_key =: monad define
 
   if. k=23 do. mouse_toggle '' return. end.  NB. Ctrl-W toggle mouse wheel
 
+  if. k=12 do.                NB. Ctrl-L: re-enable follow + redraw
+    TUI_FOLLOW =: 1
+    tui_scroll_bottom ''
+    tui_redraw''
+    return.
+  end.
+
   if. k=21 do.                NB. Ctrl-U (page up)
     oh=.out_h''
     TUI_SCROLL =: 0 >. TUI_SCROLL - (oh - 1)
+    TUI_FOLLOW =: 0           NB. user took control: stop auto-follow
     if. -. keyp 0 do. tui_redraw'' end.
     return.
   end.
 
   if. k=4 do.                 NB. Ctrl-D (page down)
     oh=.out_h''
-    TUI_SCROLL =: ((#TUI_OUTPUT) - oh) <. TUI_SCROLL + (oh - 1)
+    TUI_SCROLL =: ((# tui_wrapped '') - oh) <. TUI_SCROLL + (oh - 1)
+    if. tui_at_bottom '' do. TUI_FOLLOW =: 1 end.
     if. -. keyp 0 do. tui_redraw'' end.
     return.
   end.
@@ -512,20 +1123,17 @@ tui_handle_key =: monad define
   if. k=27 do.                NB. Escape sequence
     if. keyp 0 do.
       k2 =. rkey''
+      NB. Alt-Enter arrives as ESC CR on xterm-family terminals with
+      NB. "meta sends escape" (the common default). ESC LF is the
+      NB. Alt-Ctrl-J variant. Both insert a newline - multi-line
+      NB. input without losing the Enter-sends binding.
+      if. (k2 = 13) +. (k2 = 10) do.
+        tui_insert_nl ''
+        return.
+      end.
       if. k2=91 do.           NB. [
         if. keyp 0 do.
           k3 =. rkey''
-          NB. Bracketed paste: ESC [ 2 0 0 ~
-          if. k3 = 50 do.
-            seq =. '2'
-            while. 1 do.
-              c =. a. {~ rkey''
-              if. c e. '~$' do. break. end.
-              seq =. seq , c
-            end.
-            if. seq -: '200' do. TUI_PASTING =: 1 return. end.
-            if. seq -: '201' do. TUI_PASTING =: 0 return. end.
-          end.
           NB. SGR mouse event: ESC [ <
           if. k3 = 60 do.
             seq =. ''
@@ -537,18 +1145,8 @@ tui_handle_key =: monad define
             parts =. ';' cut seq
             btn =. 0 ". > 0 { parts
             my =. 0 ". > 2 { parts  NB. mouse Y (1-based)
-            oh =. out_h''
-            NB. scroll regardless of mouse position (only one scrollable region)
-            is_wheel_up =. (btn >: 64) *. (0 = btn 17 b. 3)
-            is_wheel_down =. (btn >: 64) *. (1 = btn 17 b. 3)
-            
-            if. is_wheel_up do.
-              TUI_SCROLL =: 0 >. TUI_SCROLL - SCROLL_LINES
-              if. -. keyp 0 do. tui_redraw'' end.
-            elseif. is_wheel_down do.
-              TUI_SCROLL =: ((#TUI_OUTPUT) - oh) <. TUI_SCROLL + SCROLL_LINES
-              if. -. keyp 0 do. tui_redraw'' end.
-            end.
+            NB. scroll logic shared with tui_steer_poll: tui_wheel_scroll
+            tui_wheel_scroll btn
             return.
           end.
           select. k3
@@ -581,8 +1179,8 @@ tui_handle_key =: monad define
               end.
               update_ac_ui''
             end.
-          case. 67 do. if. TUI_CURSOR<#TUI_INPUT do. TUI_CURSOR =: TUI_CURSOR+1 [ tui_draw_bottom '' end. 
-          case. 68 do. if. TUI_CURSOR>0 do. TUI_CURSOR =: TUI_CURSOR-1 [ tui_draw_bottom '' end. 
+          case. 67 do. if. TUI_CURSOR<#TUI_INPUT do. tui_draw_bottom '' [ TUI_CURSOR =: TUI_CURSOR+1 end.
+          case. 68 do. if. TUI_CURSOR>0 do. tui_draw_bottom '' [ TUI_CURSOR =: TUI_CURSOR-1 end.
           case. 51 do.        NB. Delete
             if. keyp 0 do. 
               tilde=.rkey'' 
@@ -618,8 +1216,9 @@ tui_handle_key =: monad define
 NB. ============================================================
 NB. Main loop
 tui_run =: monad define
-  hw =. 24 80
-  try. hw =. gethw'' catch. end.
+  NB. gethw never throws (ioctl -> stty -> 24 80; see vendor/vt.ijs)
+  hw =. gethw''
+  if. (2 ~: (# hw)) +. (0 e. hw) do. hw =. 24 80 end.
   TUI_LINES =: 0{ hw
   TUI_COLS =: 1{ hw
   raw 1
@@ -636,47 +1235,34 @@ tui_run =: monad define
     puts CSI,'?1000h'
     puts CSI,'?1006h'
   end.
-  TUI_PASTING =: 0
-  puts CSI,'?2004h'   NB. enable bracketed paste
   
   'prompt' tui_print 'J-PI Agent (TUI2 – pure vt)'
   'muted'  tui_print 'Type a question, !cmd, /cmd, Ctrl+C exit. Ctrl+W toggles mouse wheel scrolling (off = select text).'
+  'muted'  tui_print '/less [N] opens output in less (scroll, search, copy). /nvim composes a prompt in nvim.'
   tui_print ''
 
   tui_redraw''
 
   while. TUI_RUNNING do.
     k =. rkey''
-    try. tui_handle_key k catch. 
+    try. tui_handle_key k catch.
+      try. 'error' tui_print 'Error: ' , 13!:12 '' catch. end.
       try. tui_redraw'' catch. end.
     end.
   end.
 
   hist_save ''
-  puts CSI,'?2004l'   NB. disable bracketed paste
   if. MOUSE_ON do. puts CSI,'?1000l' [ puts CSI,'?1006l' end.
   curs 1
   reset''
   raw 0
   puts CR,LF
+  NB. Auto-save the conversation, after terminal restore so the
+  NB. save message prints normally. Without this, HISTORY only hit
+  NB. disk on /export or /session switch - interactive sessions
+  NB. were lost on every exit (the format is JSONL; see session.ijs).
+  if. 0 < # HISTORY do. save_session '' end.
   2!:55 (0)          NB. exit jconsole cleanly
-)
-
-NB. Override spinner routines from llm.ijs to target the pure-VT separator line
-tui_spinner =: monad define
-  frame =. > (y { SPINNER)
-  try.
-    curs 0
-    goxy 5, out_h''
-    tui_theme 'status'
-    puts ' ' , frame , ' thinking... '
-    reset''
-  catch. end.
-  (#SPINNER) | y + 1
-)
-
-tui_spinner_clear =: monad define
-  try. tui_draw_bottom '' catch. end.
 )
 
 echo 'tui2 loaded (pure vt escape codes).'

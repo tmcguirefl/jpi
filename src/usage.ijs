@@ -12,9 +12,13 @@ track_usage =: monad define
   usg =. 'usage' gethash_json y
   if. _1 -: usg do. return. end.
   usg =. > usg
-  NB. extract token counts
+  NB. extract token counts (OpenAI names; Cohere v2 nests under 'tokens')
   inp =. 'prompt_tokens' gethash_json usg
   out =. 'completion_tokens' gethash_json usg
+  toks =. 'tokens' gethash_json usg
+  if. _1 -: toks do. toks =. usg else. toks =. > toks end.
+  if. _1 -: inp do. inp =. 'input_tokens' gethash_json toks end.
+  if. _1 -: out do. out =. 'output_tokens' gethash_json toks end.
   
   i =. 0
   o =. 0
@@ -69,10 +73,13 @@ track_usage =: monad define
 )
 
 NB. Format cost to string rounding to 4 decimals
-format_cost =: monad define
-  fmt =. ": 0.0001 * <. 0.5 + 10000 * TOTAL_COST
-  '$' , fmt
-)
+NB. Tacit: '$' prepended to string of (0.0001 * floor of (0.5 + 10000 * cost))
+NB. Explicit original:
+NB.   format_cost =: monad define
+NB.     fmt =. ": 0.0001 * <. 0.5 + 10000 * TOTAL_COST
+NB.     '$' , fmt
+NB. )
+format_cost =: ('$'"_) , ": @ (0.0001 * [: <. 0.5 + 10000&*) @ (".@('TOTAL_COST'"_))
 
 NB. Display session usage summary
 show_usage =: monad define

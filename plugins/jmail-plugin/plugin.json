@@ -1,0 +1,6 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "jmail-plugin",
+  "version": "0.1.0",
+  "description": "Email archive search (notmuch) via MCP (remote HTTP server)"
+}

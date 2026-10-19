@@ -191,6 +191,66 @@ starts =: dyad define
   x -: (#x) {. y
 )
 
+NB. ============================================================
+NB. TABLE SUPPORT
+NB. A markdown table is a header row followed by a separator row
+NB. whose cells contain only '-', ':', and spaces, then body rows.
+NB. Every row must start with '|'. Rendering measures each cell
+NB. in VISIBLE columns (ANSI stripped, UTF-8 aware) and pads so all
+NB. pipes align, which the old pass-through never did (misaligned
+NB. pipes) while the raw '---' separator row was also printed.
+NB. ============================================================
+
+NB. split a table row into cell strings (no leading/trailing pipe).
+NB. The leading '|' would yield an empty first segment, so we cut
+NB. on ' |' style: simplest is to drop a single leading empty cell.
+table_cells =: monad define
+  r =. y
+  if. '|' = {. r do. r =. }. r end.
+  if. (0 < #r) *. ('|' = {: r) do. r =. }: r end.
+  NB. cut on '|' keeping all segments
+  cells =. <;._2 '|' , r , '|'
+  NB. drop the leading empty artifact (before first interior pipe)
+  if. (0 < #cells) *. (0 = # > 0 { cells) do. cells =. }. cells end.
+  trim1 each cells
+)
+
+NB. trim one cell (both ends)
+trim1 =: monad define
+  r =. lstrip y
+  while. (0 < #r) *. ' ' = {: r do. r =. }: r end.
+  r
+)
+
+NB. is this line a table separator row?  |---|:---:|---:|
+table_sep_row =: monad define
+  if. '|' ~: {. lstrip y do. 0 return. end.
+  cells =. table_cells y
+  ok =. 0
+  if. 0 < #cells do.
+    m =. 0
+    for_i. i. #cells do.
+      v =. > i { cells
+      if. (0 = #v) do. m =. _1 break. end.
+      if. -. *./ v e. '- :' do. m =. _1 break. end.
+    end.
+    if. 0 = m do. ok =. 1 end.
+  end.
+  ok
+)
+
+NB. is this line a table row? (starts with '|', has >= 2 cells)
+table_row =: monad define
+  if. '|' ~: {. lstrip y do. 0 return. end.
+  1 <: # table_cells y
+)
+
+NB. parse_inline runs later in render; here we keep RAW cell text
+NB. in the token so render_md can measure widths before styling.
+NB. token: 'table' ; (header_cells ; body_rows)
+NB.   header_cells : boxed list of raw strings
+NB.   body_rows   : boxed list of boxed lists of raw strings
+
 NB. helper: strip leading whitespace
 lstrip =: monad define
   p =. 0
@@ -277,6 +337,28 @@ parse_md =: monad define
       tokens =. tokens , < 'blank' ; ''
       i =. i+1
       continue.
+    end.
+
+    NB. table: header row | separator row | body rows
+    NB. (detected BEFORE hrule: '---' inside '|' is a separator)
+    if. table_row line do.
+      if. (i + 1) < n do.
+        next =. > (i + 1) { lines
+        if. table_sep_row next do.
+          hdr =. table_cells line
+          body =. 0 $ < 0 $ < ''
+          j =. i + 2
+          while. (j < n) do.
+            nxt =. > j { lines
+            if. -. table_row nxt do. break. end.
+            body =. body , < table_cells nxt
+            j =. j + 1
+          end.
+          tokens =. tokens , < 'table' ; hdr ; (< body)
+          i =. j
+          continue.
+        end.
+      end.
     end.
 
     NB. horizontal rule (--- or ***)
@@ -446,6 +528,64 @@ render_md =: monad define
       end.
       bbar =. BRYELLOW , BOX_BL , hline , RESET , LF
       out =. out , label , body , bbar , LF
+    case. 'table' do.
+      hdr =. > 0 { dat
+      body =. > 1 { dat
+      NB. column count from header; short rows padded to it
+      nc =. # hdr
+      NB. render: header row (bold), then data rows. '|' borders.
+      NB. Padding uses VISIBLE width (vis_len on the styled cell)
+      NB. so pipes align even when inline styles (**bold**) make
+      NB. byte length differ from display cells.
+      NB. Widths measured on the STYLED cells, then padded to the
+      NB. max per column.
+      NB. First pass over header+body styled widths:
+      smax =. (#each) hdr
+      NB. header styled widths:
+      shdr =. 0 $ 0
+      for_c. i. nc do.
+        shdr =. shdr , (vis_len_base_ render_inline parse_inline > c { hdr)
+      end.
+      smax =. shdr
+      sbody =. 0 $ < 0 $ 0
+      for_r. body do.
+        cells =. > r
+        while. nc > #cells do. cells =. cells , < '' end.
+        sw =. 0 $ 0
+        for_c. i. nc do.
+          sw =. sw , (vis_len_base_ render_inline parse_inline > c { cells)
+        end.
+        sbody =. sbody , < sw
+        for_c. i. nc do.
+          wc =. > c { sw
+          wm =. > c { smax
+          if. wc > wm do.
+            smax =. (c {. smax) , wc , ((c + 1) }. smax)
+          end.
+        end.
+      end.
+      NB. header row (bold)
+      line =. ''
+      for_c. i. nc do.
+        styled =. render_inline parse_inline > c { hdr
+        padn =. (> c { smax) - (vis_len_base_ styled)
+        line =. line , '| ' , styled , ((0 >. padn) # ' ') , ' '
+      end.
+      out =. out , BOLD , line , '|' , RESET , LF
+      NB. body rows
+      ri =. 0
+      for_r. body do.
+        cells =. > r
+        while. nc > #cells do. cells =. cells , < '' end.
+        line =. ''
+        for_c. i. nc do.
+          styled =. render_inline parse_inline > c { cells
+          padn =. (> c { smax) - (vis_len_base_ styled)
+          line =. line , '| ' , styled , ((0 >. padn) # ' ') , ' '
+        end.
+        out =. out , line , '|' , LF
+      end.
+      out =. out , LF
     case. 'hrule' do.
       out =. out , DKGRAY , (60#'_') , RESET , LF , LF
     case. 'blank' do.

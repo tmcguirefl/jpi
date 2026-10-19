@@ -1,13 +1,87 @@
 #!/bin/bash
-# Set terminal title before and during execution
-printf '\033]0;J-PI\007'
+# Set terminal title before and during execution (stderr: stdout must stay
+# clean for print/rpc modes)
+printf '\033]0;J-PI\007' >&2
 
 # Prevent zsh precmd/preexec from overriding the title
 export DISABLE_AUTO_TITLE="true"
 
-export JPI_SRC="$(cd "$(dirname "$0")/src" && pwd)"
-export JBIN="/Applications/j9.8/bin/jconsole"
-"$JBIN" "$JPI_SRC/tui_run.ijs"
+# Resolve symlinks to get the real script location
+SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SCRIPT_SOURCE")" && pwd)"
+    SCRIPT_SOURCE="$(readlink "$SCRIPT_SOURCE")"
+    [[ $SCRIPT_SOURCE != /* ]] && SCRIPT_SOURCE="$DIR/$SCRIPT_SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_SOURCE")" && pwd)"
+
+# Use the resolved directory
+export JPI_SRC="$SCRIPT_DIR/src"
+
+# Machine-local overrides (NOT tracked by git): local/env.sh may export
+# JBIN (path to J's jconsole) and JPI_JCORE (path to the J-CORE manual).
+# See local/env.example.
+if [ -f "$SCRIPT_DIR/local/env.sh" ]; then
+    . "$SCRIPT_DIR/local/env.sh"
+fi
+
+# Find jconsole — validate that it is J's jconsole, not Java's.
+# Java's jconsole is a GUI app; J's jconsole evaluates J expressions.
+# Validation: echo 'i. 3' | jconsole should print "0 1 2".
+is_j_jconsole() {
+    echo 'i. 3' | perl -e 'alarm 10; exec @ARGV' "$1" 2>/dev/null | grep -q '^0 1 2'
+}
+
+for candidate in \
+    "${JBIN:-}" \
+    "$HOME/j9.8/bin/jconsole" \
+    "/Applications/j9.8/bin/jconsole" \
+    "/usr/local/bin/jconsole" \
+    "/usr/local/j9.8/bin/jconsole" \
+    "$(command -v jconsole 2>/dev/null)"
+do
+    if [ -n "$candidate" ] && [ -x "$candidate" ] && is_j_jconsole "$candidate"; then
+        JBIN="$candidate"
+        break
+    fi
+done
+
+if [ -z "$JBIN" ]; then
+    echo "Error: J's jconsole not found. Please install J or set JBIN to the J jconsole path."
+    echo "Note: /usr/bin/jconsole on Linux is Java's jconsole (a GUI app), not J's."
+    exit 1
+fi
+export JBIN
+echo "jpi: using J jconsole at $JBIN" >&2
+
+# Mode dispatch: default is the interactive TUI
+case "${1:-}" in
+    -p|--print)
+        shift
+        "$JBIN" "$JPI_SRC/pi_print.ijs" "$@"
+        ;;
+    rpc|--rpc)
+        "$JBIN" "$JPI_SRC/pi_rpc.ijs"
+        ;;
+    serve|--serve)
+        "$JBIN" "$JPI_SRC/pi_serve.ijs"
+        ;;
+    -h|--help)
+        cat <<'USAGE'
+jpi                    interactive TUI (default)
+jpi -p PROMPT          one-shot: run PROMPT through the agent, print reply
+jpi rpc                batch JSONL RPC: commands on stdin, events on stdout
+                       (see pi_rpc.ijs header for the protocol)
+jpi serve              service mode: same JSONL protocol over a localhost
+                       TCP socket (default port 8765, JPI_SERVE_PORT to
+                       change). Clients attach/detach; the session lives on.
+                       See pi_serve.ijs header.
+USAGE
+        ;;
+    *)
+        "$JBIN" "$JPI_SRC/tui_run.ijs"
+        ;;
+esac
 
 # Restore title on exit
-printf '\033]0;%s\007' "${SHELL##*/}"
+printf '\033]0;%s\007' "${SHELL##*/}" >&2

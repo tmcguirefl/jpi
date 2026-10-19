@@ -29,6 +29,51 @@ require 'convert/json'
 NB. Use the existing jsonesc from the json locale
 jsonesc_f =: jsonesc_json_
 
+NB. UTF-8-safe JSON string escaper. The stock jsonesc escapes
+NB. EVERY byte >127 as \uXXXX. dec_json parses \uXXXX escapes via
+NB. (8 u: dfh), which yields the CODEPOINT as a literal char, not
+NB. the UTF-8 byte sequence - so a raw UTF-8 em dash (E2 80 94)
+NB. saved as \u00e2\u0080\u0094 comes back as latin-1 chars
+NB. C3 A2 C2 80 C2 94 (each byte now TWO utf-8 bytes when
+NB. re-serialized), and every save/load cycle adds another
+NB. mangling round (session files grew visible 'ÃÂ¢ÃÂ¢' mojibake).
+NB. This escaper instead passes bytes >127 through RAW (valid
+NB. UTF-8 stays valid UTF-8; dec_json does not touch raw literal
+NB. string bytes, so the round-trip is byte-identical), and
+NB. escapes only C0 controls (0-31) as \u00XX - required by JSON.
+NB. Verified: 5 enc/dec cycles leave the string byte-identical
+NB. (tests/test_enc_fixed*.ijs utf8 roundtrip checks).
+jsonesc_u =: monad define
+  txt =. , y
+  NB. stage 1: mandatory escapes (LF CR TAB FF BS quote fwdslash
+  NB. backslash) - identical to stock jsonesc stage 1
+  msk =. txt e. JSONESC0_json_
+  if. 1 e. msk do.
+    ndx =. , ((I. msk) + i. +/ msk) +/ 0 1
+    new =. , '\' ,. JSONESC1_json_ {~ JSONESC0_json_ i. msk # txt
+    txt =. new ndx } (1 + msk) # txt
+  end.
+  NB. stage 2: C0 controls (0-31) as \u00XX. Bytes >127 pass RAW.
+  msk2 =. txt e. (32 {. a.) -. JSONESC0_json_
+  if. 1 e. msk2 do.
+    NB. \u00XX per control char, built explicitly (each-form shape
+    NB. traps: ,each on mixed-rank items rank-errors; keep it dumb)
+    hex =. '0123456789abcdef'
+    src =. a. i. msk2 # txt
+    esc =. ''
+    i =. 0
+    while. i < # src do.
+      h =. hex {~ 16 16 #: i { src
+      esc =. esc , '\u00' , h
+      i =. i + 1
+    end.
+    esc =. , esc
+    ndx2 =. , ((I. msk2) + 5 * i. +/ msk2) +/ i. 6
+    txt =. esc ndx2 } (1 + msk2 * 5) # txt
+  end.
+  txt
+)
+
 enc_json_fixed =: monad define
   NB. get the J datatype
   t =. 3!:0 y
@@ -39,7 +84,7 @@ enc_json_fixed =: monad define
     elseif. y -: 'json_false' do. 'false'
     elseif. y -: 'json_null' do. 'null'
     elseif. do.
-      '"' , '"' ,~ jsonesc_f utf8^:(2~:t) , y
+      '"' , '"' ,~ jsonesc_u utf8^:(2~:t) , y
     end.
   case. 1;4;8 do.
     NB. numeric types (boolean, integer, float)

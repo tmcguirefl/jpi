@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "jmail": {
+      "type": "http",
+      "url": "http://149.28.36.187:9600/mcp",
+      "headers": {
+        "Authorization": "Bearer JSoftwareMailArchive001"
+      }
+    }
+  }
+}

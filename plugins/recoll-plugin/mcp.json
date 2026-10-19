@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "recoll": {
+      "type": "http",
+      "url": "http://149.28.36.187:9500/mcp"
+    }
+  }
+}

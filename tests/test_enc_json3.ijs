@@ -1,85 +1,128 @@
-NB. Test enc_json on manually-built structures (what our code creates)
+NB. Test enc_json_fixed on manually-built structures (what our code creates)
+NB.
+NB. Structures are built beta9-safe: a boxed value linked with ; must be
+NB. singly boxed ('key' ; < value is safe — splicing a 1-item box appends
+NB. exactly one item), but a boxed LIST (more than one item) as the right
+NB. operand of ; gets its items spliced in. Append such values with ,
+NB. instead. See the header of enc_json_fixed.ijs.
+NB.
+NB. Visual coverage of the no-box (mangled) builds lives in
+NB. test_enc_fixed2.ijs; this file asserts exact encoder output.
+
 require 'convert/json'
+load '../src/enc_json_fixed.ijs'
 
-test_manual1 =: monad define
-  echo '=== Manual 1: 2-row table built with ,: ==='
-  obj =. ('name';'desc') ,: 'read';'Read file'
-  echo 'shape: ' , (": $ obj) , '  $$: ' , ": $$ obj
-  try. echo enc_json obj catch. echo 'FAILED: ' , 13!:12 '' end.
+PASS =: 0
+FAIL =: 0
+
+check =: monad define
+  if. y do.
+    PASS =: PASS + 1
+  else.
+    FAIL =: FAIL + 1
+    echo 'FAIL'
+  end.
+  ''
 )
 
-test_manual2 =: monad define
-  echo '=== Manual 2: Nested - object value is a 2-row table ==='
-  inner =. ('name';'desc') ,: 'read';'Read file'
-  outer =. ('type';'function') ,: 'function'; inner
-  echo 'shape: ' , (": $ outer) , '  $$: ' , ": $$ outer
-  try. echo enc_json outer catch. echo 'FAILED: ' , 13!:12 '' end.
+NB. x = expected JSON string, y = J structure
+assert_enc =: dyad define
+  try.
+    r =. enc_json_fixed y
+    if. x -: r do.
+      check 1
+    else.
+      check 0
+      echo '  expected: ' , x
+      echo '  got     : ' , r
+    end.
+  catch.
+    FAIL =: FAIL + 1
+    echo 'FAIL: encoder error: ' , 13!:12 ''
+  end.
+  ''
 )
 
-test_manual3 =: monad define
-  echo '=== Manual 3: Object value is a parsed JSON schema ==='
-  schema =. dec_json '{"type":"object","properties":{"path":{"type":"string"}}}'
-  obj =. ('name';'description';'parameters') ,: 'read';'Read file'; schema
-  echo 'shape: ' , (": $ obj) , '  $$: ' , ": $$ obj
-  echo 'schema type: ' , ": 3!:0 schema
-  echo 'schema shape: ' , ": $ schema
-  try. echo enc_json obj catch. echo 'FAILED: ' , 13!:12 '' end.
+NB. Round-trip: dec_json (enc_json_fixed y) must match y
+assert_rt =: monad define
+  try.
+    r =. dec_json enc_json_fixed y
+    check r -: y
+  catch.
+    FAIL =: FAIL + 1
+    echo 'FAIL: round-trip error: ' , 13!:12 ''
+  end.
+  ''
 )
 
-test_manual4 =: monad define
-  echo '=== Manual 4: Array of manually-built objects ==='
-  o1 =. ('name';'desc') ,: 'read';'Read file'
-  o2 =. ('name';'desc') ,: 'bash';'Run cmd'
-  arr =. o1 ; o2
-  echo 'shape: ' , (": $ arr) , '  $$: ' , ": $$ arr
-  try. echo enc_json arr catch. echo 'FAILED: ' , 13!:12 '' end.
-)
+NB. --- Manual 1: 2-row table built with ,: ---
+echo '=== Manual 1: 2-row table built with ,: ==='
+obj1 =. ('name';'desc') ,: 'read';'Read file'
+'{"name":"read","desc":"Read file"}' assert_enc obj1
+assert_rt obj1
 
-test_manual5 =: monad define
-  echo '=== Manual 5: Boxed list with < ==='
-  o1 =. (<'read';'Read file';'{}')
-  o2 =. (<'bash';'Run cmd';'{}')
-  arr =. o1 , o2
-  echo 'shape: ' , (": $ arr) , '  $$: ' , ": $$ arr
-  echo 'item 0 shape: ' , (": $ > 0 { arr) , '  type: ' , ": 3!:0 > 0 { arr
-  try. echo enc_json arr catch. echo 'FAILED: ' , 13!:12 '' end.
-)
+NB. --- Manual 2: nested - object value is a 2-row table ---
+echo '=== Manual 2: Nested - object value is a 2-row table ==='
+inner =. ('name';'desc') ,: 'read';'Read file'
+outer =. ('type';'function') ,: 'function'; < inner
+'{"type":"function","function":{"name":"read","desc":"Read file"}}' assert_enc outer
+assert_rt outer
 
-test_manual6 =: monad define
-  echo '=== Manual 6: Message object ==='
-  msg =. ('role';'content') ,: 'user'; 'hello world'
-  echo 'shape: ' , (": $ msg) , '  $$: ' , ": $$ msg
-  try. echo enc_json msg catch. echo 'FAILED: ' , 13!:12 '' end.
-)
+NB. --- Manual 3: object value is a parsed JSON schema ---
+echo '=== Manual 3: Object value is a parsed JSON schema ==='
+schema =. dec_json '{"type":"object","properties":{"path":{"type":"string"}}}'
+obj3 =. ('name';'description';'parameters') ,: 'read';'Read file'; < schema
+'{"name":"read","description":"Read file","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}' assert_enc obj3
+assert_rt obj3
 
-test_manual7 =: monad define
-  echo '=== Manual 7: Array of message objects ==='
-  m1 =. ('role';'content') ,: 'user'; 'hello'
-  m2 =. ('role';'content') ,: 'assistant'; 'hi there'
-  arr =. (< m1) , (< m2)
-  echo 'shape: ' , (": $ arr) , '  $$: ' , ": $$ arr
-  try. echo enc_json arr catch. echo 'FAILED: ' , 13!:12 '' end.
-)
+NB. --- Manual 4: array of manually-built objects ---
+echo '=== Manual 4: Array of manually-built objects ==='
+o1 =. ('name';'desc') ,: 'read';'Read file'
+o2 =. ('name';'desc') ,: 'bash';'Run cmd'
+arr4 =. (< o1) , < o2
+'[{"name":"read","desc":"Read file"},{"name":"bash","desc":"Run cmd"}]' assert_enc arr4
+assert_rt arr4
 
-test_manual8 =: monad define
-  echo '=== Manual 8: Full payload-like structure ==='
-  m1 =. ('role';'content') ,: 'user'; 'hello'
-  msgs =. ,< m1
-  schema =. dec_json '{"type":"object","properties":{"command":{"type":"string"}}}'
-  tool_f =. ('name';'description';'parameters') ,: 'bash';'Run cmd'; schema
-  tool =. ('type';'function') ,: 'function'; tool_f
-  tools =. ,< tool
-  payload =. ('model';'max_tokens';'tools';'messages') ,: 'test-model'; 4096; tools; msgs
-  echo 'shape: ' , (": $ payload) , '  $$: ' , ": $$ payload
-  try. echo enc_json payload catch. echo 'FAILED: ' , 13!:12 '' end.
-)
+NB. --- Manual 5: boxed list with < ---
+echo '=== Manual 5: Boxed list with < ==='
+o5 =. (<'read';'Read file';'{}') , <'bash';'Run cmd';'{}'
+'[["read","Read file","{}"],["bash","Run cmd","{}"]]' assert_enc o5
 
-test_manual1 ''
-test_manual2 ''
-test_manual3 ''
-test_manual4 ''
-test_manual5 ''
-test_manual6 ''
-test_manual7 ''
-test_manual8 ''
-echo '=== All manual tests done ==='
+NB. --- Manual 6: message object ---
+echo '=== Manual 6: Message object ==='
+msg =. ('role';'content') ,: 'user'; 'hello world'
+'{"role":"user","content":"hello world"}' assert_enc msg
+assert_rt msg
+
+NB. --- Manual 7: array of message objects ---
+echo '=== Manual 7: Array of message objects ==='
+m1 =. ('role';'content') ,: 'user'; 'hello'
+m2 =. ('role';'content') ,: 'assistant'; 'hi there'
+arr7 =. (< m1) , < m2
+'[{"role":"user","content":"hello"},{"role":"assistant","content":"hi there"}]' assert_enc arr7
+assert_rt arr7
+
+NB. --- Manual 8: full payload-like structure ---
+echo '=== Manual 8: Full payload-like structure ==='
+msg8 =. ('role';'content') ,: 'user'; 'hello'
+msgs8 =. ,< msg8
+schema8 =. dec_json '{"type":"object","properties":{"command":{"type":"string"}}}'
+tool_f8 =. ('name';'description';'parameters') ,: 'bash';'Run cmd'; < schema8
+tool8 =. ('type';'function') ,: 'function'; < tool_f8
+tools8 =. ,< tool8
+payload8 =. ('model';'max_tokens';'tools';'messages') ,: ('test-model'; 4096) , (< tools8) , < msgs8
+'{"model":"test-model","max_tokens":4096,"tools":[{"type":"function","function":{"name":"bash","description":"Run cmd","parameters":{"type":"object","properties":{"command":{"type":"string"}}}}}],"messages":[{"role":"user","content":"hello"}]}' assert_enc payload8
+assert_rt payload8
+
+NB. Summary (control words are definition-body-only, so wrap in a def)
+summarize =: monad define
+  ps =. ": PASS
+  fs =. ": FAIL
+  echo 'passed: ' , ps , '  failed: ' , fs
+  if. 0 = FAIL do.
+    echo 'ALL TESTS PASSED'
+  else.
+    echo 'TESTS FAILED'
+  end.
+)
+summarize ''

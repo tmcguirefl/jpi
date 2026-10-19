@@ -1,5 +1,5 @@
 NB. Tests for Phase 1
-load '../src/main.ijs'
+load '../src/agent.ijs'
 
 echo 'Running Phase 1 tests...'
 

@@ -97,28 +97,30 @@ is_ext_command =: monad define
   (<y) e. {."1 EXT_COMMANDS
 )
 
+NB. Check if a tool name is registered in EXT_TOOLS
+is_ext_tool =: monad define
+  if. 0 = # EXT_TOOLS do. 0 return. end.
+  found =. 0
+  for_t. EXT_TOOLS do.
+    if. y -: > 0 { > t do. found =. 1 end.
+  end.
+  found
+)
+
 NB. ================================================================
 NB. Build tool JSON for extension tools (for LLM payload)
+NB. Mirrors get_tools: anthropic uses input_schema with no wrapper;
+NB. all other providers use the OpenAI {"type":"function","function":...} form.
 get_ext_tools_json =: monad define
   if. 0 = #EXT_TOOLS do. '' return. end.
   r =. ''
   for_t. EXT_TOOLS do.
     'name desc params verb' =. > t
-    select. PROVIDER
-    case. 'openrouter' do.
-      tool_json =. '{"name":"' , name , '","description":"' , desc , '","parameters":' , params , '}'
-      r =. r , ',{"type":"function","function":' , tool_json , '}'
-    case. 'google' do.
-      tool_json =. '{"name":"' , name , '","description":"' , desc , '","parameters":' , params , '}'
-      r =. r , ',{"type":"function","function":' , tool_json , '}'
-    case. 'local' do.
-      tool_json =. '{"name":"' , name , '","description":"' , desc , '","parameters":' , params , '}'
-      r =. r , ',{"type":"function","function":' , tool_json , '}'
-    case. 'ollama' do.
-      tool_json =. '{"name":"' , name , '","description":"' , desc , '","parameters":' , params , '}'
-      r =. r , ',{"type":"function","function":' , tool_json , '}'
-    case. 'anthropic' do.
-      r =. r , ',{"name":"' , name , '","description":"' , desc , '","input_schema":' , params , '}'
+    t_json =. (schema_key '') mk_tool name;desc;params
+    if. uses_openai_tools '' do.
+      r =. r , ',{"type":"function","function":' , t_json , '}'
+    else.
+      r =. r , ',' , t_json
     end.
   end.
   r
@@ -126,9 +128,16 @@ get_ext_tools_json =: monad define
 
 NB. ================================================================
 NB. Load all extensions from plugins/ directory
+NB. TRUST GATED: .ijs files in a project-local plugins dir are
+NB. EXECUTED here at startup - never auto-run code from an
+NB. untrusted directory. jpi's own shipped dir is exempt (utils.ijs).
 load_extensions =: monad define
   plugins_dir =. '../plugins'
   if. -. fexist plugins_dir do. return. end.
+  if. -. is_builtin_plugins plugins_dir do.
+    pare =. ((1!:43 '') i: '/') {. 1!:43 ''
+    if. -. trust_gate pare do. '' return. end.
+  end.
   try.
     files =. 2!:0 'ls ' , plugins_dir , '/*.ijs 2>/dev/null'
     if. 0 = #files do. return. end.

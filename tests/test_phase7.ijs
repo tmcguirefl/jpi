@@ -1,50 +1,67 @@
 NB. Phase 7 Tests: End-to-end integration
+NB. test_phase7.ijs
+NB.
+NB. Run from src/:  jconsole < ../tests/test_phase7.ijs
+NB.
+NB. assert. is definition-body-only in J (top-level control words
+NB. are a syntax error), so checks use the check/report pattern
+NB. shared with the other test files.
+
 load '../src/agent.ijs'
 
-echo 'Running Phase 7 end-to-end tests...'
+PASS =: 0
+FAIL =: 0
+
+check =: monad define
+  if. y do.
+    PASS =: >: PASS
+  else.
+    FAIL =: >: FAIL
+    echo '  FAIL'
+  end.
+)
+
+report =: monad define
+  echo ''
+  echo 'Results: ' , (": PASS) , ' passed, ' , (": FAIL) , ' failed'
+  if. FAIL > 0 do.
+    echo 'TESTS FAILED'
+  else.
+    echo 'ALL TESTS PASSED'
+  end.
+)
 
 NB. ----------------------------------------------------------------
 NB. Test 1: Write a file, read it back, edit it, read again
+echo '=== file round trip ==='
 testfile =. 'test_e2e.txt'
-
-echo 'Step 1: Write file'
-assert. 1 = write_file testfile ; 'Hello World'
-
-echo 'Step 2: Read file'
-content =. read_file_str testfile
-assert. 'Hello World' -: content
-echo 'Read back: ', content
-
-echo 'Step 3: Edit file'
-assert. 1 = edit_file testfile ; 'World' ; 'J-PI'
-
-echo 'Step 4: Read edited file'
-content2 =. read_file_str testfile
-assert. 'Hello J-PI' -: content2
-echo 'After edit: ', content2
-
+check 1 = write_file testfile ; 'Hello World'
+NB. fwrites (line-oriented write) appends a trailing LF, so curtail
+NB. the read-back before exact comparison.
+check 'Hello World' -: }: read_file_str testfile
+check 1 = edit_file testfile ; 'World' ; 'J-PI'
+check 'Hello J-PI' -: }: read_file_str testfile
 ferase testfile
 
 NB. ----------------------------------------------------------------
 NB. Test 2: Safety check blocks dangerous commands
-echo 'Step 5: Safety checks'
-assert. 1 = is_safe 'ls -la'
-assert. 0 = is_safe 'rm -rf /'
-assert. 0 = is_safe 'dd if=/dev/zero'
-echo 'Safety tests passed.'
+echo '=== safety ==='
+check 1 = is_safe 'ls -la'
+check 0 = is_safe 'rm -rf /'
+check 0 = is_safe 'dd if=/dev/zero'
 
 NB. ----------------------------------------------------------------
-NB. Test 3: Agent dispatch
-echo 'Step 6: Agent dispatch'
+NB. Test 3: Agent dispatch (smoke — errors surface as J error output)
+echo '=== agent dispatch ==='
 agent 'run echo hello from agent'
 
 NB. ----------------------------------------------------------------
 NB. Test 4: Logging
-echo 'Step 7: Log check'
-assert. fexist LOGFILE
-echo 'Log file exists: ', LOGFILE
-
-NB. Cleanup
+NB. run only logs blocked commands, so write an entry explicitly.
+echo '=== logging ==='
+log 'phase7 test entry'
+check fexist LOGFILE
 ferase LOGFILE
 
-echo 'All Phase 7 tests passed!'
+NB. ----------------------------------------------------------------
+report ''

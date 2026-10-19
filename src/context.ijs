@@ -1,21 +1,37 @@
 NB. Context window management
 NB. context.ijs
 
-NB. Approximate token limit (most models support 128k+ but we cap for cost)
-MAX_TOKENS =: 100000
+NB. Context window limit is set dynamically by config.ijs (update_config_state
+NB. via context_limit '') based on the active provider/model. config.ijs loads
+NB. before context.ijs in the agent load chain, so MAX_TOKENS is already defined
+NB. when we get here. The guard below is a fallback for standalone loads (e.g.
+NB. tests) that don't go through config. Wrapped in an explicit definition
+NB. because control words (if.) are only valid inside explicit definitions,
+NB. not at script top level.
+set_max_tokens =: monad define
+  if. _1 = 4!:0 <'MAX_TOKENS' do. MAX_TOKENS =: 100000 end.
+)
+set_max_tokens ''
 
 NB. Approximate tokens per character (rough heuristic: 1 token ~ 4 chars)
 CHARS_PER_TOKEN =: 4
 
 NB. Estimate token count of a string
-est_tokens =: monad define
-  <. (#y) % CHARS_PER_TOKEN
-)
+NB. Tacit: [: <. # % 4"_ — fork: floor of (length divided by constant)
+NB. Explicit original:
+NB.   est_tokens =: monad define
+NB.     <. (#y) % CHARS_PER_TOKEN
+NB. )
+est_tokens =: [: <. # % CHARS_PER_TOKEN"_
 
 NB. Estimate total tokens in HISTORY
-history_tokens =: monad define
-  +/ est_tokens&> HISTORY
-)
+NB. Tacit: +/ @: (est_tokens &>) — sum of est_tokens applied to each opened box
+NB. Now takes HISTORY as argument (was: read global, called with '').
+NB. Explicit original:
+NB.   history_tokens =: monad define
+NB.     +/ est_tokens&> HISTORY
+NB. )
+history_tokens =: +/ @: (est_tokens &>)
 
 NB. Force manual compaction of the oldest N messages
 NB. y = number of messages to compact
@@ -45,14 +61,19 @@ perform_compaction =: monad define
   
   chunk =. idx {. HISTORY
   
-  NB. Build payload without tools
+  NB. Build payload without tools.
+  NB. MODEL MUST be routed via model_for_api (strip provider prefix) -
+  NB. the raw jpi name (e.g. 'mistral/glm-5-2') is not a valid API
+  NB. model id, which silently broke EVERY compaction call.
+  api_model =. model_for_api MODEL
   all_msgs =. (< sys_msg) , chunk
   msgs_json =. _1 }. ; (,&',') each all_msgs
-  
-  if. (PROVIDER -: 'openrouter') +. (PROVIDER -: 'google') +. (PROVIDER -: 'local') +. (PROVIDER -: 'ollama') +. (PROVIDER -: 'tcm') do.
-    payload =. '{"model":"' , MODEL , '","messages":[' , msgs_json , ']}'
+
+  NB. Anthropic requires max_tokens; all other providers omit it
+  if. uses_openai_tools '' do.
+    payload =. '{"model":"' , api_model , '","messages":[' , msgs_json , ']}'
   else.
-    payload =. '{"model":"' , MODEL , '","max_tokens":1024,"messages":[' , msgs_json , ']}'
+    payload =. '{"model":"' , api_model , '","max_tokens":1024,"messages":[' , msgs_json , ']}'
   end.
   
   try.
@@ -74,7 +95,7 @@ perform_compaction =: monad define
 
 NB. Trim oldest messages by summarizing them via background LLM call
 trim_history =: monad define
-  total =. history_tokens ''
+  total =. history_tokens HISTORY
   if. total < MAX_TOKENS do. return. end.
   
   if. 6 >: #HISTORY do.
