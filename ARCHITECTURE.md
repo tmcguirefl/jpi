@@ -111,6 +111,42 @@ fallback additionally runs `strip_tool_msgs`: replaying tool_calls with
 no tools declared is what cohere flags as
 `HALLUCINATED_ALL_TOOL_CALLS`.
 
+## The j tool escalation ladder
+
+The j tool lets the model *run* J instead of only predicting it —
+but models get stuck: bench runs showed repeated same-error spirals
+burning ~220k tokens before giving up. The ladder (`tool_exec.ijs`
+`jfail_text`, verdicts in `jev.ijs`) attaches graduated help to
+each failure, tracked per **error signature** (normalized error
+text), not per attempt — fixing one bug doesn't reset another's
+count. Resubmitting identical code is detected separately and met
+with a "run the PIECES separately" nudge. Rungs, by same-signature
+failure count:
+
+1. **one-line J-CORE hint** for the observed error family.
+2. **the full manual section** behind that hint.
+3. **permission to retreat from tacit to explicit** — "a working
+   explicit answer beats a broken tacit one."
+4. **search-the-manual pointer** plus the explicit fail count.
+5. **J wiki/forum search via MCP tools** — only offered when MCP
+   tools are actually loaded; the manual covers observed failure
+   families, the wiki documents everything.
+6. **thrash verdict** (`jev_verdict`): a decision-model reviews the
+   recent turns and returns PROGRESS or THRASH; THRASH appends an
+   explicit-retreat nudge, PROGRESS a change-one-thing line. Any
+   engine failure (no key, no network) adds nothing — the rung
+   degrades silently and never blocks the run.
+7. **escalated one-shot solver** — on a THRASH verdict the stuck
+   fragment is handed to a stronger model (`LADDER_MODEL`, unset
+   degrades silently); its proposal returns to the *main* model,
+   which must verify it with the j tool before adopting it.
+
+`.ijs` writes via the write tool enter the same ladder (a load check
+feeds failures into the shared signature counter), so file-write
+spirals get the same treatment as j spirals. The thresholds
+(healthy models converge by attempt 3; thrashers hit 25+) come from
+benchmark observation, not intuition.
+
 ## Conventions worth knowing before touching code
 
 - **JSON objects** = 2-row boxed tables; `gethash_json` returns `_1`
