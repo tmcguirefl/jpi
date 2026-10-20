@@ -80,6 +80,10 @@ NB. ends is injected at the start of the next ask, so nothing
 NB. typed is ever silently dropped.
 STEER_MSG =: ''
 
+NB. 1 when the user hit Esc during llm_call, or the wait gave up.
+NB. llm_ask drops the messages added for that turn.
+LLM_CANCEL =: 0
+
 NB. Thinking/reasoning request parameter for the active provider.
 NB. Returns a JSON fragment to splice after "stream":false, or ''
 NB. when the provider has no thinking control (fragment is omitted).
@@ -163,6 +167,202 @@ strip_tool_msgs =: monad define
   out
 )
 
+NB. 1 when y is JSON null. dec_json represents null as the string
+NB. json_null, sometimes still inside a scalar box.
+is_json_null =: monad define
+  v =. y
+  while. (32 = 3!:0 v) *. 0 = # $ v do.
+    v =. > v
+  end.
+  (2 = 3!:0 v) *. 'json_null' -: v
+)
+
+NB. ----------------------------------------------------------------
+NB. Direct Anthropic Messages API.
+NB. History stays in the OpenAI shape the tool loop stores.
+NB. These verbs convert that shape on the way out, and convert
+NB. a Messages response back into choices/message/tool_calls
+NB. on the way in. OpenRouter ids (anthropic/claude-...) never
+NB. take this path; only a model id that starts with claude- does.
+
+NB. One OpenAI message JSON string -> role ; boxed list of
+NB. Anthropic content-block JSON strings. role 'system' means
+NB. the text belongs in the top-level system field.
+anth_blocks =: monad define
+  o =. dec_json y
+  role =. > 'role' gethash_json o
+  if. 'system' -: role do.
+    text =. > 'content' gethash_json o
+    if. is_json_null text do. text =. '' end.
+    'system' ; < , < text return.
+  end.
+  if. 'tool' -: role do.
+    id =. > 'tool_call_id' gethash_json o
+    c =. > 'content' gethash_json o
+    if. (_1 -: c) +. is_json_null c do. c =. '' end.
+    if. 2 ~: 3!:0 c do. c =. ": c end.
+    blk =. '{"type":"tool_result","tool_use_id":' , (enc_json_fixed id) , ',"content":' , (enc_json_fixed c) , '}'
+    'user' ; < , < blk return.
+  end.
+  if. 'assistant' -: role do.
+    blocks =. 0 $ <''
+    c =. > 'content' gethash_json o
+    if. (2 = 3!:0 c) *. (0 < # c) *. -. is_json_null c do.
+      blocks =. blocks , < '{"type":"text","text":' , (enc_json_fixed c) , '}'
+    end.
+    tcs =. > 'tool_calls' gethash_json o
+    if. (32 = 3!:0 tcs) *. 0 < # tcs do.
+      for_tc. tcs do.
+        tc =. > tc
+        id =. > 'id' gethash_json tc
+        fn =. > 'function' gethash_json tc
+        if. _1 -: fn do. continue. end.
+        name =. > 'name' gethash_json fn
+        args =. > 'arguments' gethash_json fn
+        if. (_1 -: args) +. is_json_null args do. args =. '{}' end.
+        if. 2 ~: 3!:0 args do. args =. enc_json_fixed args end.
+        if. '{' ~: {. args do. args =. '{}' end.
+        blk =. '{"type":"tool_use","id":' , (enc_json_fixed id) , ',"name":' , (enc_json_fixed name) , ',"input":' , args , '}'
+        blocks =. blocks , < blk
+      end.
+    end.
+    if. 0 = # blocks do.
+      blocks =. , < '{"type":"text","text":""}'
+    end.
+    'assistant' ; < blocks return.
+  end.
+  c =. > 'content' gethash_json o
+  if. (_1 -: c) +. is_json_null c do. c =. '' end.
+  if. 2 ~: 3!:0 c do. c =. ": c end.
+  blk =. '{"type":"text","text":' , (enc_json_fixed c) , '}'
+  'user' ; < , < blk
+)
+
+NB. x = role ; <blocks , y = boxed messages so far. Append one.
+anth_emit =: dyad define
+  'role blocks' =. x
+  if. 0 = # blocks do. y return. end.
+  body =. '[' , (}. ; (','&,)&.> blocks) , ']'
+  msg =. '{"role":' , (enc_json_fixed role) , ',"content":' , body , '}'
+  y , < msg
+)
+
+NB. y = boxed OpenAI messages. Returns system text ; boxed
+NB. Anthropic message strings. Adjacent user turns (a question
+NB. plus tool_result blocks, or a steer line) are one message.
+anth_messages =: monad define
+  sys =. ''
+  role =. ''
+  blocks =. 0 $ <''
+  out =. 0 $ <''
+  for_m. y do.
+    'r b' =. anth_blocks > m
+    if. 'system' -: r do.
+      text =. > {. b
+      if. 0 < # text do.
+        if. 0 = # sys do. sys =. text else. sys =. sys , LF , text end.
+      end.
+      continue.
+    end.
+    if. r -: role do.
+      blocks =. blocks , b
+    else.
+      if. 0 < # role do.
+        out =. (role ; < blocks) anth_emit out
+      end.
+      role =. r
+      blocks =. b
+    end.
+  end.
+  if. 0 < # role do.
+    out =. (role ; < blocks) anth_emit out
+  end.
+  sys ; < out
+)
+
+NB. Open scalar boxes until the value is a list or a table.
+NB. gethash_json boxes the cell, and a one-item array is a
+NB. rank-0 box, so one open is not enough.
+open_boxes =: monad define
+  v =. y
+  while. (32 = 3!:0 v) *. 0 = # $ v do.
+    v =. > v
+  end.
+  v
+)
+
+NB. Text blocks from an Anthropic content array, or a plain string.
+anth_text =: monad define
+  content =. open_boxes > 'content' gethash_json y
+  if. (_1 -: content) +. is_json_null content do. '' return. end.
+  if. 2 = 3!:0 content do.
+    if. is_json_null content do. '' else. content end.
+    return.
+  end.
+  if. 32 ~: 3!:0 content do. '' return. end.
+  text =. ''
+  for_b. content do.
+    blk =. open_boxes b
+    if. 'text' -: > 'type' gethash_json blk do.
+      t =. > 'text' gethash_json blk
+      if. (2 = 3!:0 t) *. -. is_json_null t do. text =. text , t end.
+    end.
+  end.
+  text
+)
+
+NB. tool_use blocks as OpenAI tool_call objects.
+anth_tool_calls =: monad define
+  content =. open_boxes > 'content' gethash_json y
+  if. (_1 -: content) +. is_json_null content do. 0 $ <'' return. end.
+  if. 32 ~: 3!:0 content do. 0 $ <'' return. end.
+  out =. 0 $ <''
+  for_b. content do.
+    blk =. open_boxes b
+    if. -. 'tool_use' -: > 'type' gethash_json blk do. continue. end.
+    id =. > 'id' gethash_json blk
+    name =. > 'name' gethash_json blk
+    input =. 'input' gethash_json blk
+    if. (_1 -: input) +. is_json_null > input do.
+      args =. '{}'
+    else.
+      args =. enc_json_fixed > input
+    end.
+    fn =. ('name' ; 'arguments') ,: name ; < args
+    tc =. ('id' ; 'type' ; 'function') ,: id ; 'function' ; < fn
+    out =. out , < tc
+  end.
+  out
+)
+
+NB. stop_reason -> the finish_reason the tool loop already checks.
+anth_stop =: monad define
+  s =. > 'stop_reason' gethash_json y
+  if. (_1 -: s) +. is_json_null s do. 'stop' return. end.
+  select. s
+  case. 'tool_use' do. 'tool_calls'
+  case. 'end_turn' do. 'stop'
+  case. 'max_tokens' do. 'length'
+  case. 'stop_sequence' do. 'stop'
+  case. do. 'stop'
+  end.
+)
+
+NB. Native Messages response -> one OpenAI chat.completion choice.
+NB. A body with no stop_reason (errors, already-OpenAI JSON) is unchanged.
+normalize_anthropic =: monad define
+  if. _1 -: 'stop_reason' gethash_json y do. y return. end.
+  text =. anth_text y
+  tcs =. anth_tool_calls y
+  finish =. anth_stop y
+  if. 0 < # tcs do. finish =. 'tool_calls' end.
+  NB. Do not box text again. gethash_json boxes the cell, and
+  NB. one open must yield the string, matching dec_json.
+  msg =. ('role' ; 'content' ; 'tool_calls') ,: 'assistant' ; text ; < tcs
+  choice =. ('finish_reason' ; 'message') ,: finish ; < msg
+  (, < 'choices') ,: < , < choice
+)
+
 NB. Build the full request payload from conversation history
 NB. y = optional flag: 1 = omit tools (for fallback after 422 errors)
 build_payload =: monad define
@@ -191,10 +391,21 @@ build_payload =: monad define
       payload =. '{"model":"' , api_model , '","stream":false' , tp , ',"tools":' , (get_tools '') , ',"messages":[' , msgs , ']}'
     end.
   else.
+    NB. Messages API: system is top-level, tools use input_schema,
+    NB. and tool results are user content blocks. msgs above is the
+    NB. OpenAI concatenation and is not sent.
+    'system anth' =. anth_messages all
+    NB. anth is already the list of message strings. Opening it
+    NB. would laminate them into one character table.
+    body =. ''
+    if. (32 = 3!:0 anth) *. 0 < # anth do.
+      body =. }. ; (','&,)&.> anth
+    end.
+    base =. '{"model":"' , api_model , '","max_tokens":4096,"system":' , (enc_json_fixed dlb system)
     if. no_tools do.
-      payload =. '{"model":"' , api_model , '","stream":false' , tp , ',"max_tokens":4096,"messages":[' , msgs , ']}'
+      payload =. base , ',"messages":[' , body , ']}'
     else.
-      payload =. '{"model":"' , api_model , '","stream":false' , tp , ',"max_tokens":4096,"tools":' , (get_tools '') , ',"messages":[' , msgs , ']}'
+      payload =. base , ',"tools":' , (get_tools '') , ',"messages":[' , body , ']}'
     end.
   end.
 )
@@ -240,7 +451,8 @@ HTTP_RETRIES =: 0
 HTTP_TRIES_MAX =: 2
 
 llm_call =: monad define
-  
+  LLM_CANCEL =: 0
+
   if. 0 = #API_KEY do.
     echo 'ERROR: API_KEY not set for provider: ' , PROVIDER
     echo 'Add your provider key (e.g. OPENROUTER_API_KEY=sk-...) to ~/.jpi_providers'
@@ -260,13 +472,29 @@ llm_call =: monad define
     timeout =. 120  NB. seconds before giving up
     while. -. http_async_done '' do.
       tui_spinner_frame spin
-      NB. steering capture: keys typed during the API wait
-      if. 3 = 4!:0 <'tui_steer_poll' do. tui_steer_poll '' end.
+      NB. steering capture: keys typed during the API wait.
+      NB. 1 from the poll is bare Esc. Compare to 1: if. on an
+      NB. empty result is true, and that would cancel every frame.
+      if. 3 = 4!:0 <'tui_steer_poll' do.
+        if. 1 = tui_steer_poll '' do.
+          LLM_CANCEL =: 1
+          echo 'Cancelled.'
+          break.
+        end.
+      end.
       6!:3 ] 0.15
       spin =. (#SPINNER) | spin + 1
-      if. timeout < (6!:1 '') - t0 do. break. end.
+      if. timeout < (6!:1 '') - t0 do.
+        LLM_CANCEL =: 1
+        echo 'Request timed out.'
+        break.
+      end.
     end.
     tui_spinner_clear ''
+    if. LLM_CANCEL do.
+      http_async_cancel ''
+      '' return.
+    end.
     raw =. http_async_result ''
   else.
     raw =. API_URL http_post y
@@ -304,6 +532,12 @@ llm_call =: monad define
     '' return.
   end.
   
+  NB. Direct Anthropic returns stop_reason and content blocks.
+  NB. The rest of the tool loop reads choices/message/tool_calls.
+  if. PROVIDER -: 'anthropic' do.
+    parsed =. normalize_anthropic parsed
+  end.
+
   NB. Workaround for some Google API errors returning an array `[{error:...}]`
   if. 1 = $$ parsed do. parsed =. > {. parsed end.
   if. has_error parsed do.
@@ -436,7 +670,7 @@ get_or_content =: monad define
     catch.
       '' return.
     end.
-    if. _1 -: content do.
+    if. (_1 -: content) +. is_json_null content do.
       '' return.
     elseif. 32 = 3!:0 content do.
       NB. content is a boxed array of objects (e.g. thinking + text).
@@ -445,7 +679,7 @@ get_or_content =: monad define
       for_c. content do.
         try.
           t =. > 'text' gethash_json > c
-          if. (_1 -.@-: t) *. 0 < #t do.
+          if. (_1 -.@-: t) *. (0 < # t) *. -. is_json_null t do.
             text =. t
             break.
           end.
@@ -462,7 +696,7 @@ get_or_content =: monad define
   case. do.
     try.
       r =. > 'content' gethash_json msg
-      if. _1 -: r do. '' return. end.
+      if. (_1 -: r) +. is_json_null r do. '' return. end.
       if. 32 = 3!:0 r do.
         NB. block-array content (e.g. Mistral zai reasoning
         NB. models: thinking + text blocks). Find the text
@@ -471,11 +705,13 @@ get_or_content =: monad define
         for_c. r do.
           try.
             t =. > 'text' gethash_json > c
-            if. (_1 -.@-: t) *. 0 < #t do. text =. t break. end.
+            if. (_1 -.@-: t) *. (0 < # t) *. -. is_json_null t do. text =. t break. end.
           catch.
           end.
         end.
         text
+      elseif. is_json_null r do.
+        ''
       else.
         r
       end.
@@ -647,6 +883,9 @@ strip_thinking =: monad define
 NB. Multi-turn ask with tool use loop
 NB. y = question string
 llm_ask =: monad define
+  NB. On Esc or a timed-out request, drop everything this ask added
+  NB. so the next turn does not send two user messages in a row.
+  mark =. # HISTORY
   NB. carried-over steering: typed during the previous ask's final
   NB. API call (no iteration followed) - inject before the new prompt
   if. 0 < # STEER_MSG do.
@@ -673,6 +912,10 @@ llm_ask =: monad define
     try.
       payload =. build_payload retried_no_tools
       resp =. llm_call payload
+      if. LLM_CANCEL do.
+        HISTORY =: mark {. HISTORY
+        '' return.
+      end.
       if. 0 = #resp do.
         NB. If this is the first failure and we haven't retried yet,
         NB. retry without tools (handles Cohere HALLUCINATED_ALL_TOOL_CALLS 422)

@@ -69,8 +69,17 @@ perform_compaction =: monad define
   all_msgs =. (< sys_msg) , chunk
   msgs_json =. _1 }. ; (,&',') each all_msgs
 
-  NB. Anthropic requires max_tokens; all other providers omit it
-  if. uses_openai_tools '' do.
+  NB. Direct Anthropic wants system at the top level and content
+  NB. blocks, same as build_payload. Other providers take the
+  NB. OpenAI messages array, including the system message.
+  if. PROVIDER -: 'anthropic' do.
+    'system anth' =. anth_messages (< sys_msg) , chunk
+    body =. ''
+    if. (32 = 3!:0 anth) *. 0 < # anth do.
+      body =. }. ; (','&,)&.> anth
+    end.
+    payload =. '{"model":"' , api_model , '","max_tokens":1024,"system":' , (enc_json_fixed dlb system) , ',"messages":[' , body , ']}'
+  elseif. uses_openai_tools '' do.
     payload =. '{"model":"' , api_model , '","messages":[' , msgs_json , ']}'
   else.
     payload =. '{"model":"' , api_model , '","max_tokens":1024,"messages":[' , msgs_json , ']}'

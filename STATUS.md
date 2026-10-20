@@ -1,23 +1,23 @@
-Updated: 2026-10-19
+Updated: 2026-10-20
 
-`main` is Jared Nicholson's contribution, fast-forwarded and pushed. Build on `main` from here.
+Local `jconsole` / `ijconsole` links and review items 2–5 are committed on `main`. Item 1 is deferred.
 
 ## Done
 
-- `git am --3way` of `/tmp/jpi-contribution.patch` (4 commits, author Jared Nicholson).
-- Conflicts in commit 1 resolved: Jared's `llm.ijs`, `tool_exec.ijs`, and `tui.ijs`; `http_stream.ijs` deleted; `.gitignore` keeps his ignores and `.jpi_providers`; `run_cmd.ijs` uses his `JBIN_PATH` plus `</dev/null`.
-- `perl` is `/usr/bin/perl` 5.34.1.
-- Built `src/vendor/winsize.so` (gitignored): `cd src/vendor && cc -dynamiclib -o winsize.so winsize.c`. One comment warning. Mach-O arm64.
-- J tool `+/ i.10` returned 45.
-- `./jpi -p` starts with `/Users/tomdevel/j9.8/bin/jconsole` and returns an empty reply: HTTP 401, missing auth. `~/.jpi_providers` still has a one-character placeholder.
+- Startup creates gitignored `local/jconsole` and `local/ijconsole` and puts that directory first on the tool-shell `PATH`.
+- A non-numeric bash timeout is rejected. `mkdir`, `base64`, `sips`, `open`, and `/git` `/grep` `/find` quote their arguments. `/git` uses `is_safe`.
+- JSON `null` content is empty text. Esc and the 120s wait kill the background curl and drop that ask's messages.
+- A `claude-` model id uses the Anthropic Messages shape. The reply is normalized to `choices` / `tool_calls`.
+- Tests: `test_run_cmd.ijs` 28 passed, `test_shell_quote.ijs`, `test_http_cancel.ijs`, `test_stream_null.ijs`.
 
 ## Next / blocked
 
-- Next change: if `local/jconsole` and `local/ijconsole` are missing, create those symlinks to J's binary and put `local/` first on the tool-shell `PATH`.
-- Re-run `./jpi -p` from a shell where `OPENROUTER_API_KEY` is set.
-- Untracked local experiments and `src/mva.ijs` were not part of the patch.
+- Item 1 is on hold: the `j` tool stays in-process in `jpiagws` so the session and the escalation ladder keep working. Study that before changing it.
+- Still open: blocklist false positives, confirm in the raw TUI, compaction role pairing, `fwrites` adding a linefeed, `run_hooks`, session-name traversal.
+- Re-run `./jpi -p` from a shell where `OPENROUTER_API_KEY` is set. Do not commit `src/mva.ijs` or the root experiment scripts.
 
 ## Key paths
 
-- `main` at `6aaa58b`. `jared-contrib` points at the same commit.
-- `ARCHITECTURE.md`, `src/pi_print.ijs`, `src/mcp.ijs`, `src/vendor/winsize.c`, `jpi`, `src/run_cmd.ijs`
+- `main` tracks `origin/main`. This commit is local until pushed.
+- `jpi`, `src/run_cmd.ijs`, `src/llm.ijs`, `src/http.ijs`, `src/tui.ijs`, `src/agent.ijs`.
+- Links (gitignored): `local/jconsole`, `local/ijconsole`.

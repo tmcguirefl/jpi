@@ -359,4 +359,28 @@ take_utf8 =: dyad define
   cur
 )
 
+NB. squote: wrap in single quotes for the shell.
+NB. ' inside the text becomes '\'' (close, escaped quote, reopen).
+SQ =: ''''
+BS =: '\'
+squote_repl =: SQ , BS , SQ , SQ
+squote =: monad define
+  escaped =. y rplc SQ ; squote_repl
+  SQ , escaped , SQ
+)
+
+NB. Quote each whitespace-separated word as its own shell argument.
+NB. Metacharacters stay inside the quotes, so a slash-command tail
+NB. cannot close the command and run another one.
+quote_words =: monad define
+  s =. deb y
+  if. 0 = # s do. '' return. end.
+  words =. <;._1 ' ' , s
+  r =. ''
+  for_w. words do.
+    r =. r , (squote > w) , ' '
+  end.
+  }: r
+)
+
 echo 'utils loaded.'

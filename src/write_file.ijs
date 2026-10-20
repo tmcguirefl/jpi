@@ -1,6 +1,8 @@
 NB. File Writing Tool
 NB. write_file.ijs
 
+require 'utils.ijs'
+
 NB. Extract directory portion of a path (everything up to last /)
 dir_of =: monad define
   slashes =. I. '/' = y
@@ -12,7 +14,7 @@ NB. Ensure parent directories exist
 ensure_dirs =: monad define
   dir =. dir_of y
   if. 0 < #dir do.
-    try. 2!:0 'mkdir -p ' , dir catch. end.
+    try. 2!:0 'mkdir -p ' , squote dir catch. end.
   end.
 )
 

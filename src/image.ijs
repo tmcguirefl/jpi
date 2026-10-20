@@ -1,6 +1,8 @@
 NB. Image support
 NB. image.ijs
 
+require 'utils.ijs'
+
 NB. File extensions we treat as images
 IMG_EXTENSIONS =: '.jpg';'.jpeg';'.png';'.gif';'.webp';'.bmp';'.svg'
 
@@ -20,7 +22,7 @@ NB. Base64 encode a file using shell
 NB. y = filepath, returns base64 string
 file_to_base64 =: monad define
   try.
-    _1 }. 2!:0 'base64 < ' , y
+    _1 }. 2!:0 'base64 < ' , squote y
   catch.
     ''
   end.
@@ -29,7 +31,7 @@ file_to_base64 =: monad define
 NB. Get image dimensions string via sips (macOS)
 image_info =: monad define
   try.
-    _1 }. 2!:0 'sips -g pixelWidth -g pixelHeight ' , y , ' 2>/dev/null'
+    _1 }. 2!:0 'sips -g pixelWidth -g pixelHeight ' , (squote y) , ' 2>/dev/null'
   catch.
     ''
   end.
@@ -81,7 +83,7 @@ display_image =: monad define
     display_image_inline y
   else.
     NB. fallback: open with system viewer
-    try. 2!:0 'open ' , y catch. end.
+    try. 2!:0 'open ' , squote y catch. end.
     echo '(opened in system viewer)'
   end.
 )

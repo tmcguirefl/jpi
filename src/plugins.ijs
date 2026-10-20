@@ -15,6 +15,7 @@ NB.   ~/.jpi/plugins/      — user-global
 NB.   $JPI_SRC/plugins/    — built-in (shipped with jpi)
 
 require 'files'
+require 'utils.ijs'
 
 NB. skills.ijs is loaded by agent.ijs before plugins.ijs
 NB. We depend on: discover_skills_in, SKILLS
@@ -163,7 +164,7 @@ load_mcp_stdio =: monad define
   NB. Expand ${PLUGIN_ROOT} and ${PLUGIN_DATA}
   plugin_data =. (2!:5 'HOME') , '/.jpi/data/' , plugin_name
   NB. Create PLUGIN_DATA dir if it doesn't exist
-  try. 2!:0 'mkdir -p ' , plugin_data catch. end.
+  try. 2!:0 'mkdir -p ' , squote plugin_data catch. end.
   command =. expand_placeholder command ; plugin_root ; plugin_data
   args =. expand_placeholder args ; plugin_root ; plugin_data
   NB. Build the full command

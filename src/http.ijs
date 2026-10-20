@@ -1,5 +1,7 @@
 NB. HTTP client via curl
 NB. http.ijs
+
+require 'utils.ijs'
 NB.
 NB. All requests capture curl's HTTP status code and stderr so that
 NB. connection failures and non-2xx responses are reported to the caller
@@ -29,6 +31,7 @@ HTTP_TMPFILE    =: jpath '~temp/jpi_post_body' , HTTP_TMP_SUFFIX , '.json'
 HTTP_HEADERFILE =: jpath '~temp/jpi_headers' , HTTP_TMP_SUFFIX , '.conf'
 HTTP_RESPONSE   =: jpath '~temp/jpi_response' , HTTP_TMP_SUFFIX , '.json'
 HTTP_STDERR     =: jpath '~temp/jpi_curl_stderr' , HTTP_TMP_SUFFIX , '.txt'
+HTTP_PID_FILE   =: jpath '~temp/jpi_curl_pid' , HTTP_TMP_SUFFIX , '.txt'
 
 NB. ================================================================
 NB. Auth header construction — table-driven, no per-provider select.
@@ -138,14 +141,48 @@ http_post_async =: dyad define
   '' fwrite HTTP_RESPONSE_FILE
   '' fwrite HTTP_CODE_FILE
   ferase HTTP_DONE_FILE
+  ferase HTTP_PID_FILE
   cmd =. 'curl -s -X POST -K ' , HTTP_HEADERFILE
   cmd =. cmd , ' -d @' , HTTP_TMPFILE
   cmd =. cmd , ' -o ' , HTTP_RESPONSE_FILE
   cmd =. cmd , ' -w ''%{http_code}''' , ' > ' , HTTP_CODE_FILE , ' 2>' , HTTP_STDERR
   cmd =. cmd , ' ' , url
-  NB. run in background, touch done flag when finished. Use </dev/null to prevent stdin stealing
-  cmd =. '(' , cmd , ' ; touch ' , HTTP_DONE_FILE , ') </dev/null &'
-  2!:0 cmd
+  NB. set -m gives the background subshell its own process group,
+  NB. so Esc can kill curl and the touch together. echo $! is the
+  NB. group leader. </dev/null keeps curl off the TUI's stdin.
+  script =. 'set -m; (' , cmd , ' ; touch ' , (squote HTTP_DONE_FILE) , ') </dev/null & echo $!'
+  pid =. ''
+  try.
+    pid =. 2!:0 script
+  catch.
+    pid =. ''
+  end.
+  pid =. deb pid -. CR , LF
+  if. (0 < # pid) *. -. 0 e. pid e. '0123456789' do.
+    pid fwrite HTTP_PID_FILE
+  end.
+)
+
+NB. Kill the in-flight curl, if its pid file is still there.
+NB. A late touch of the done flag would be read as the next reply.
+http_async_cancel =: monad define
+  pid =. ''
+  try.
+    pid =. fread HTTP_PID_FILE
+  catch.
+    pid =. ''
+  end.
+  pid =. deb pid -. CR , LF
+  if. (0 < # pid) *. -. 0 e. pid e. '0123456789' do.
+    try.
+      2!:0 'kill -TERM -' , pid , ' 2>/dev/null || kill -TERM ' , pid , ' 2>/dev/null || true'
+    catch.
+    end.
+  end.
+  ferase HTTP_PID_FILE
+  ferase HTTP_DONE_FILE
+  '' fwrite HTTP_RESPONSE_FILE
+  ''
 )
 
 NB. Check if async request is done

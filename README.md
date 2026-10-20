@@ -32,9 +32,12 @@ printf '%s\n' '{"cmd":"ask","prompt":"what is +/ i. 5"}' | ./jpi rpc
 
 - [J 9.x](https://www.jsoftware.com/download.htm) on PATH or at a
   common install location (`/Applications/j9.8/` on macOS, `~/j9.8/`,
-  `/usr/local/bin/` on Linux). If jpi cannot find J's jconsole, set
-  `JBIN` — copy `local/env.example` to `local/env.sh` (untracked) and
-  export `JBIN=/path/to/jconsole` there.
+  `/usr/local/bin/` on Linux). `ijconsole` is tried before `jconsole`,
+  so a renamed J install is not confused with Java's `jconsole`. If
+  jpi cannot find it, set `JBIN` — copy `local/env.example` to
+  `local/env.sh` (untracked) and export `JBIN=/path/to/jconsole` there.
+  Startup then ensures `local/jconsole` and `local/ijconsole` are
+  symlinks to that binary. Tool shells search `local/` first.
 - `bash` and `curl` (all request traffic goes through curl).
 - `perl` — the launcher uses one `perl -e 'alarm ...'` call to
   time-box its is-this-J's-jconsole validation. Present by default on

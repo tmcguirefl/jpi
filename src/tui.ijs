@@ -635,9 +635,13 @@ NB.
 NB. Recognized: wheel events (SGR ESC [ < btn ; x ; y M), Ctrl-U
 NB. (page up, pins), Ctrl-D (page down, resumes at bottom), Ctrl-L
 NB. (snap to bottom + resume), Enter (steer), Backspace, printable.
-NB. Anything else (bare ESC, arrow keys, etc.) is swallowed whole.
+NB. Anything else (arrow keys, etc.) is swallowed whole.
+NB. Bare Esc returns 1 so the caller can kill the in-flight curl.
 
 tui_steer_poll =: monad define
+  NB. 1 when the user hit bare Esc. llm_call kills the curl.
+  NB. Return an integer: if. treats an empty result as true.
+  esc =. 0
   while. keyp 0 do.
     k =. rkey ''
     NB. Ctrl-U: page up + pin
@@ -664,8 +668,11 @@ tui_steer_poll =: monad define
       continue.
     end.
     if. k = 27 do.                  NB. Escape sequence
-      NB. nothing queued after ESC: bare Esc, drop it
-      if. -. keyp 0 do. continue. end.
+      NB. nothing queued after ESC: bare Esc cancels the request
+      if. -. keyp 0 do.
+        esc =. 1
+        break.
+      end.
       k2 =. rkey ''
       if. k2 = 91 do.               NB. [
         if. -. keyp 0 do. continue. end.
@@ -705,7 +712,7 @@ tui_steer_poll =: monad define
     end.
     if. -. keyp 0 do. tui_draw_bottom '' end.
   end.
-  ''
+  esc
 )
 
 NB. ============================================================

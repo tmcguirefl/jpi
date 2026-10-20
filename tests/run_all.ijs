@@ -49,13 +49,20 @@ NB. candidate list in a single expression.
   e =. env_jbin ''
   if. (0 < # e) *. is_j_jconsole e do. e return. end.
   home =. > 2!:5 'HOME'
-  candidates =. '/Applications/j9.8/bin/jconsole' ; '/usr/local/bin/jconsole' ; '/usr/local/j9.8/bin/jconsole'
-  if. 2 = 3!:0 home do. candidates =. (< home , '/j9.8/bin/jconsole') , candidates end.
+  candidates =. '/Applications/j9.8/bin/ijconsole' ; '/Applications/j9.8/bin/jconsole' ; '/usr/local/bin/ijconsole' ; '/usr/local/j9.8/bin/ijconsole' ; '/usr/local/j9.8/bin/jconsole' ; '/usr/local/bin/jconsole'
+  if. 2 = 3!:0 home do. candidates =. ((home , '/j9.8/bin/ijconsole') ; (home , '/j9.8/bin/jconsole')) , candidates end.
   for_c. candidates do.
     if. is_j_jconsole > c do. > c return. end.
   end.
-  path =. _1 }. 2!:0 'which jconsole 2>/dev/null'
-  if. (0 < # path) *. is_j_jconsole path do. path return. end.
+  for_w. 'ijconsole' ; 'jconsole' do.
+    path =. ''
+    try.
+      path =. _1 }. 2!:0 'which ' , (> w) , ' 2>/dev/null'
+    catch.
+      path =. ''
+    end.
+    if. (0 < # path) *. is_j_jconsole path do. path return. end.
+  end.
   ''
 )
 

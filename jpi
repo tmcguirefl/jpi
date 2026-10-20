@@ -28,16 +28,25 @@ fi
 # Find jconsole — validate that it is J's jconsole, not Java's.
 # Java's jconsole is a GUI app; J's jconsole evaluates J expressions.
 # Validation: echo 'i. 3' | jconsole should print "0 1 2".
+# ijconsole is searched first. Many J installs use that name so the
+# binary does not collide with Java's jconsole.
 is_j_jconsole() {
     echo 'i. 3' | perl -e 'alarm 10; exec @ARGV' "$1" 2>/dev/null | grep -q '^0 1 2'
 }
 
 for candidate in \
     "${JBIN:-}" \
+    "$HOME/j9.8/bin/ijconsole" \
     "$HOME/j9.8/bin/jconsole" \
+    "/Applications/j9.8/bin/ijconsole" \
     "/Applications/j9.8/bin/jconsole" \
-    "/usr/local/bin/jconsole" \
+    "/usr/local/bin/ijconsole" \
+    "/usr/local/j9.8/bin/ijconsole" \
     "/usr/local/j9.8/bin/jconsole" \
+    "$(command -v ijconsole 2>/dev/null)" \
+    "$SCRIPT_DIR/local/ijconsole" \
+    "$SCRIPT_DIR/local/jconsole" \
+    "/usr/local/bin/jconsole" \
     "$(command -v jconsole 2>/dev/null)"
 do
     if [ -n "$candidate" ] && [ -x "$candidate" ] && is_j_jconsole "$candidate"; then
@@ -51,8 +60,57 @@ if [ -z "$JBIN" ]; then
     echo "Note: /usr/bin/jconsole on Linux is Java's jconsole (a GUI app), not J's."
     exit 1
 fi
+
+# A hit on local/jconsole may itself be the symlink we are about to
+# refresh. Follow it out of local/ so the new link does not point at
+# itself and drop the real binary.
+_hops=0
+while [ -L "$JBIN" ] && [ "$_hops" -lt 5 ]; do
+    case "$JBIN" in
+        "$SCRIPT_DIR/local/"*) ;;
+        *) break ;;
+    esac
+    _t="$(readlink "$JBIN")"
+    case "$_t" in
+        /*) _next="$_t" ;;
+        *) _next="$SCRIPT_DIR/local/$_t" ;;
+    esac
+    [ "$_next" = "$JBIN" ] && break
+    JBIN="$_next"
+    _hops=$((_hops + 1))
+done
+if [ "$_hops" -gt 0 ] && ! is_j_jconsole "$JBIN"; then
+    echo "Error: $JBIN is not J's jconsole." >&2
+    exit 1
+fi
+
 export JBIN
 echo "jpi: using J jconsole at $JBIN" >&2
+
+# Machine-local names for tool shells. Both point at the binary just
+# found. A real file at that path is left alone. An existing symlink
+# is replaced only when it points somewhere else.
+case "$JBIN" in
+    "$SCRIPT_DIR/local/"*)
+        echo "jpi: not linking local/ to itself" >&2
+        ;;
+    *)
+        mkdir -p "$SCRIPT_DIR/local"
+        for link_name in jconsole ijconsole; do
+            link_path="$SCRIPT_DIR/local/$link_name"
+            if [ -L "$link_path" ]; then
+                if [ "$(readlink "$link_path")" = "$JBIN" ]; then
+                    continue
+                fi
+            elif [ -e "$link_path" ]; then
+                echo "jpi: $link_path exists and is not a symlink; leaving it" >&2
+                continue
+            fi
+            ln -sfn "$JBIN" "$link_path"
+            echo "jpi: linked $link_path -> $JBIN" >&2
+        done
+        ;;
+esac
 
 # Mode dispatch: default is the interactive TUI
 case "${1:-}" in

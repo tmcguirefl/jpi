@@ -543,8 +543,13 @@ git_verb =: monad define
     echo 'Branch: ' , git_branch ''
     echo git_status ''
   else.
-    NB. pass through to git command
-    echo run_cmd_str 'git ' , y
+    NB. Quote each word, and run the same blocklist as bash.
+    if. -. is_safe y do.
+      log 'BLOCKED: ', y
+      echo 'Command blocked for safety.'
+      return.
+    end.
+    echo run_cmd_str 'git ' , quote_words y
   end.
 )
 
@@ -554,7 +559,7 @@ grep_verb =: monad define
     echo 'Command blocked for safety.'
     return.
   end.
-  echo run_cmd_str 'grep -rn ' , y
+  echo run_cmd_str 'grep -rn ' , quote_words y
 )
 
 find_verb =: monad define
@@ -563,7 +568,7 @@ find_verb =: monad define
     echo 'Command blocked for safety.'
     return.
   end.
-  echo run_cmd_str 'find ' , y
+  echo run_cmd_str 'find ' , quote_words y
 )
 
 compact_verb =: monad define

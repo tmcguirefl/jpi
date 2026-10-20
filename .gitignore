@@ -48,6 +48,8 @@ api_key.txt
 
 # Machine-local overrides (jconsole path, J-CORE manual path)
 local/env.sh
+local/jconsole
+local/ijconsole
 
 # Compiled at build time; platform-specific (macOS/Linux differ)
 src/vendor/winsize.so

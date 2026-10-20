@@ -84,9 +84,35 @@ NB. jconsole should be a shell function (not PATH lookup)
 out2 =. run_cmd 'type jconsole 2>&1'
 check 'function' +./@E. > out2
 
+NB. ijconsole is the same binary, including the PATH lookup that
+NB. bypasses the shell function.
+out4 =. run_cmd 'echo ''i. 5'' | ijconsole'
+check '0 1 2 3 4' +./@E. > out4
+out5 =. run_cmd 'echo ''i. 5'' | command ijconsole'
+check '0 1 2 3 4' +./@E. > out5
+out6 =. run_cmd 'echo ''i. 5'' | command jconsole'
+check '0 1 2 3 4' +./@E. > out6
+
 NB. Basic commands still work
 out3 =. run_cmd 'echo hello'
 check 'hello' -: }: > out3
+
+NB. A non-numeric timeout must not be spliced into the perl program.
+echo '=== timeout reject ==='
+flag =. '/tmp/jpi_timeout_reject'
+ferase < flag
+out7 =. run_cmd ('echo RAN') ; '1; touch /tmp/jpi_timeout_reject'
+check 'ERROR: timeout' +./@E. > out7
+check -. fexist flag
+out8 =. run_cmd ('echo ok') ; 2
+check 'ok' +./@E. > out8
+
+NB. Each word of a slash-command tail is its own quoted argument.
+echo '=== quote_words ==='
+q =. quote_words 'status; echo hi'
+check '''status;''' +./@E. q
+check '''echo''' +./@E. q
+check '''hi''' +./@E. q
 
 NB. --- Report ---
 report ''
