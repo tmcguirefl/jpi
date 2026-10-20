@@ -1,6 +1,6 @@
 Updated: 2026-10-19
 
-Jared Nicholson's contribution is applied on local branch `jared-contrib`. Not merged and not pushed.
+`main` is Jared Nicholson's contribution, fast-forwarded and pushed. Build on `main` from here.
 
 ## Done
 
@@ -13,11 +13,11 @@ Jared Nicholson's contribution is applied on local branch `jared-contrib`. Not m
 
 ## Next / blocked
 
+- Next change: if `local/jconsole` and `local/ijconsole` are missing, create those symlinks to J's binary and put `local/` first on the tool-shell `PATH`.
 - Re-run `./jpi -p` from a shell where `OPENROUTER_API_KEY` is set.
-- Review `jared-contrib` before any merge or push.
 - Untracked local experiments and `src/mva.ijs` were not part of the patch.
 
 ## Key paths
 
-- Branch `jared-contrib` at `89cdf47`, based on `main` `0cf7a9a`.
-- `ARCHITECTURE.md`, `src/pi_print.ijs`, `src/mcp.ijs`, `src/vendor/winsize.c`
+- `main` at `6aaa58b`. `jared-contrib` points at the same commit.
+- `ARCHITECTURE.md`, `src/pi_print.ijs`, `src/mcp.ijs`, `src/vendor/winsize.c`, `jpi`, `src/run_cmd.ijs`
