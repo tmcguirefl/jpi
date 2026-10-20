@@ -1,24 +1,23 @@
 Updated: 2026-10-19
 
-J-PI is on `origin/main` at `a19fae3` plus local edits. SSE null content is ignored and tool-call fragments are reassembled. Not committed.
+Jared Nicholson's contribution is applied on local branch `jared-contrib`. Not merged and not pushed.
 
 ## Done
 
-- Reviewed the harness (safety, tool loop, TUI, providers).
-- Fast-forwarded `main` from `7c78317` to `a19fae3`. Discarded executable-bit-only dirt.
-- Kept local work: bracketed paste and vt spinner in `src/tui.ijs`, `</dev/null` in `src/http.ijs` and `src/run_cmd.ijs`, `MAX_TOOL_LOOPS =: 15` and TUI redraws in `src/llm.ijs`.
-- Ignored `.jpi_providers`. Wrote development notes in `AGENTS.md`.
-- Confirmed `jconsole` J9.8 and `load 'api/curl'`.
-- Fixed the NVIDIA/OpenRouter `jsonnull` flood. `src/http_stream.ijs` drops JSON null content and rebuilds `tool_calls`. `src/llm.ijs` treats null content as empty. `tests/test_stream_null.ijs` passes.
+- `git am --3way` of `/tmp/jpi-contribution.patch` (4 commits, author Jared Nicholson).
+- Conflicts in commit 1 resolved: Jared's `llm.ijs`, `tool_exec.ijs`, and `tui.ijs`; `http_stream.ijs` deleted; `.gitignore` keeps his ignores and `.jpi_providers`; `run_cmd.ijs` uses his `JBIN_PATH` plus `</dev/null`.
+- `perl` is `/usr/bin/perl` 5.34.1.
+- Built `src/vendor/winsize.so` (gitignored): `cd src/vendor && cc -dynamiclib -o winsize.so winsize.c`. One comment warning. Mach-O arm64.
+- J tool `+/ i.10` returned 45.
+- `./jpi -p` starts with `/Users/tomdevel/j9.8/bin/jconsole` and returns an empty reply: HTTP 401, missing auth. `~/.jpi_providers` still has a one-character placeholder.
 
 ## Next / blocked
 
-- Retry the moving-average prompt from `../jpitest`. The system prompt is rebuilt on each request, so the model sees that directory. `src/mva.ijs` is the earlier write into the wrong directory.
-- Then the review list: in-process `j` tool, timeout string injected into `perl -e`, unquoted `mkdir` / image / `git` / `grep` / `find`, Esc does not cancel `curl_easy_perform`.
-- Not blocked. No Claude Code session exists for this directory.
+- Re-run `./jpi -p` from a shell where `OPENROUTER_API_KEY` is set.
+- Review `jared-contrib` before any merge or push.
+- Untracked local experiments and `src/mva.ijs` were not part of the patch.
 
 ## Key paths
 
-- `jpi`, `src/tui_run.ijs`, `src/tui.ijs`, `src/llm.ijs`, `src/http_stream.ijs`, `src/tool_exec.ijs`
-- Uncommitted: `.gitignore`, `AGENTS.md`, `STATUS.md`, `src/http.ijs`, `src/http_stream.ijs`, `src/llm.ijs`, `src/run_cmd.ijs`, `src/tui.ijs`, `tests/test_stream_null.ijs`
-- Keys stay in the environment or `~/.jpi_providers`. Do not print them.
+- Branch `jared-contrib` at `89cdf47`, based on `main` `0cf7a9a`.
+- `ARCHITECTURE.md`, `src/pi_print.ijs`, `src/mcp.ijs`, `src/vendor/winsize.c`
