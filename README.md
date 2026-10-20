@@ -5,7 +5,7 @@ J-PI is a terminal-based agentic coding assistant written entirely in the
 interactive TUI (Text User Interface) for conversing with LLMs, executing
 tools (file read/write, shell commands, code editing), and working within
 a project directory — similar in spirit to the
-[pi coding agent](https://github.com/earendil-works/pi-coding-agent).
+[pi coding agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent).
 
 ## Quick Start
 

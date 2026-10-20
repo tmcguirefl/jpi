@@ -74,8 +74,8 @@ load_plugin =: monad define
   NB. Register plugin
   PLUGINS =: PLUGINS , name ; version ; y
   echo 'PLUGINS: loaded plugin "' , name , '" from ' , y
-  NB. Discover skills from this plugin
-  discover_skills_in y
+  NB. Skills are scanned once by discover_all_skills, after every
+  NB. plugin is registered. Scanning here as well duplicated rows.
   NB. Load MCP servers from mcp.json if present
   load_mcp_json y ; name
   1
@@ -293,7 +293,7 @@ discover_all_plugins =: monad define
     NB. nested if.: *. does not short-circuit, and trust_gate
     NB. must not prompt for directories with nothing to load
     if. fexist './plugins' do.
-      if. trust_gate 1!:43 '' do. discover_plugins_in './plugins' end.
+      if. project_trusted '' do. discover_plugins_in './plugins' end.
     end.
   end.
   if. is_builtin_plugins '../plugins' do.
@@ -301,7 +301,7 @@ discover_all_plugins =: monad define
   else.
     pare =. ((1!:43 '') i: '/') {. 1!:43 ''
     if. (fexist '../plugins') *. 0 < # pare do.
-      if. trust_gate pare do. discover_plugins_in '../plugins' end.
+      if. project_trusted '' do. discover_plugins_in '../plugins' end.
     end.
   end.
   echo 'Plugins loaded: ' , (": # PLUGINS) , ' plugin(s)'

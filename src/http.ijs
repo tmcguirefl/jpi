@@ -142,7 +142,9 @@ http_post_async =: dyad define
   '' fwrite HTTP_CODE_FILE
   ferase HTTP_DONE_FILE
   ferase HTTP_PID_FILE
-  cmd =. 'curl -s -X POST -K ' , HTTP_HEADERFILE
+  NB. -N flushes each SSE chunk. A proxy that ignores stream
+  NB. still writes one JSON body, and the caller falls back to it.
+  cmd =. 'curl -s -N -X POST -K ' , HTTP_HEADERFILE
   cmd =. cmd , ' -d @' , HTTP_TMPFILE
   cmd =. cmd , ' -o ' , HTTP_RESPONSE_FILE
   cmd =. cmd , ' -w ''%{http_code}''' , ' > ' , HTTP_CODE_FILE , ' 2>' , HTTP_STDERR

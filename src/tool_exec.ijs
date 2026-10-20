@@ -4,8 +4,8 @@ NB. tool_exec.ijs
 load 'safety.ijs'
 load 'confirm.ijs'
 
-NB. Tool name lookup
-TOOLS =: 'read';'bash';'edit';'write';'j'
+NB. Tool name lookup. Order matches the gerund in exec_tool.
+TOOLS =: 'read';'bash';'edit';'write';'j';'grep';'find';'ls'
 
 NB. Check if a result is an error string (starts with 'ERROR:')
 NB. Explicit original:
@@ -37,7 +37,7 @@ exec_tool =: monad define
   idx =. (, each TOOLS) i. < , name
   if. idx < #TOOLS do.
     NB. built-in tool
-    (exec_read`exec_bash`exec_edit`exec_write`exec_j) @. idx input
+    (exec_read`exec_bash`exec_edit`exec_write`exec_j`exec_grep`exec_find`exec_ls) @. idx input
   else.
     NB. try extension tools first, then MCP tools
     if. is_ext_tool name do.
@@ -52,10 +52,44 @@ exec_tool =: monad define
   end.
 )
 
+NB. Optional string field. '' when missing, null, or not text.
+field_text =: dyad define
+  v =. x gethash_json y
+  if. _1 -: v do. '' return. end.
+  v =. > v
+  if. 2 ~: 3!:0 v do. '' return. end.
+  if. 'json_null' -: v do. '' return. end.
+  v
+)
+
+NB. Image reads travel as text plus a marker. The payload
+NB. builder turns that marker into an image block. A large
+NB. file stays a text note so the request does not carry it.
+image_tool_text =: monad define
+  path =. y
+  mime =. 'application/octet-stream'
+  if. 3 = 4!:0 <'image_mime' do. mime =. image_mime path end.
+  b64 =. ''
+  if. 3 = 4!:0 <'file_to_base64' do. b64 =. file_to_base64 path end.
+  note =. 'Image file: ' , path
+  if. 3 = 4!:0 <'image_info' do.
+    info =. image_info path
+    if. 0 < # info do. note =. note , LF , info end.
+  end.
+  if. (0 = # b64) +. 120000 < # b64 do.
+    note , LF , '(image is not inlined)'
+  else.
+    note , LF , '[[jpi-image ' , mime , ']]' , LF , b64
+  end.
+)
+
 exec_read =: monad define
   pv =. 'path' require_field y
   if. is_error pv do. pv return. end.
   path =. > pv
+  if. 3 = 4!:0 <'is_image' do.
+    if. is_image path do. image_tool_text path return. end.
+  end.
   NB. optional offset and limit parameters
   offset =. 'offset' gethash_json y
   limit =. 'limit' gethash_json y
@@ -64,6 +98,41 @@ exec_read =: monad define
   offset =. > offset
   limit =. > limit
   read_file_auto path ; offset ; limit
+)
+
+NB. grep exits 1 when nothing matches. || true keeps 2!:0 from
+NB. turning that into a domain error.
+exec_grep =: monad define
+  pv =. 'pattern' require_field y
+  if. is_error pv do. pv return. end.
+  pat =. > pv
+  path =. 'path' field_text y
+  if. 0 = # path do. path =. '.' end.
+  if. -. (is_safe pat) *. is_safe path do.
+    'ERROR: pattern or path blocked for safety.' return.
+  end.
+  run_cmd_str 'grep -n -- ' , (squote pat) , ' ' , (squote path) , ' || true'
+)
+
+exec_find =: monad define
+  path =. 'path' field_text y
+  if. 0 = # path do. path =. '.' end.
+  name =. 'name' field_text y
+  if. -. (is_safe path) *. is_safe name do.
+    'ERROR: path or name blocked for safety.' return.
+  end.
+  cmd =. 'find ' , squote path
+  if. 0 < # name do. cmd =. cmd , ' -name ' , squote name end.
+  run_cmd_str cmd , ' || true'
+)
+
+exec_ls =: monad define
+  path =. 'path' field_text y
+  if. 0 = # path do. path =. '.' end.
+  if. -. is_safe path do.
+    'ERROR: path blocked for safety.' return.
+  end.
+  run_cmd_str 'ls -la ' , (squote path) , ' || true'
 )
 
 NB. ================================================================

@@ -227,9 +227,14 @@ run_cmd =: monad define
     shell_setup =. path_setup , 'jconsole() { ' , (squote JBIN_PATH) , ' "$@"; }; ijconsole() { ' , (squote JBIN_PATH) , ' "$@"; }; '
     full_cmd =. 'perl -e ''alarm ' , (": secs) , '; exec @ARGV'' sh -c ' , (dquote (shell_setup,cmd)) , ' </dev/null 2>&1'
     out =. 2!:0 full_cmd
-    NB. truncate if too long
+    NB. truncate if too long. The full text stays in a file.
     if. MAX_OUTPUT < #out do.
-      out =. (MAX_OUTPUT {. out) , LF , '[output truncated at ' , human_size MAX_OUTPUT , ']'
+      home =. > 2!:5 'HOME'
+      dir =. home , '/.jpi/tool-out'
+      try. 2!:0 'mkdir -p ' , squote dir catch. end.
+      fn =. dir , '/out-' , (": <. 1e6 * 6!:1 '') , '.txt'
+      out fwrite fn
+      out =. (MAX_OUTPUT {. out) , LF , '[output truncated at ' , (human_size MAX_OUTPUT) , '; full text in ' , fn , ']'
     end.
     < out
   catch.

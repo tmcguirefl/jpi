@@ -18,9 +18,12 @@ NB.   <plugin>/skills/*/SKILL.md      — plugin-packaged skills (via plugins.ij
 require 'files'
 
 NB. ================================================================
-NB. Global registry of discovered skills
-NB. Each entry: name ; description ; path (absolute path to SKILL.md)
-SKILLS =: 0 3 $ <''
+NB. Global registry of discovered skills.
+NB. Each entry: name ; description ; path ; invoke
+NB. invoke is '0' when the skill says disable-model-invocation.
+NB. Those skills stay runnable with /skill:name and stay out of
+NB. the system prompt.
+SKILLS =: 0 4 $ <''
 
 NB. ================================================================
 NB. Minimal YAML frontmatter parser
@@ -80,7 +83,7 @@ get_fm_value =: dyad define
 NB. ================================================================
 NB. Load and validate a single SKILL.md file
 NB. y = absolute path to SKILL.md
-NB. Returns: name ; description ; path  (boxed), or empty if invalid
+NB. Returns: name ; description ; path ; invoke, or empty if invalid
 load_skill =: monad define
   if. -. fexist y do. '' return. end.
   content =. fread y
@@ -90,7 +93,22 @@ load_skill =: monad define
   name =. 'name' get_fm_value fm
   desc =. 'description' get_fm_value fm
   if. (0 = #name) +. (0 = #desc) do. '' return. end.
-  name ; desc ; y
+  flag =. tolower 'disable-model-invocation' get_fm_value fm
+  flag =. flag -. '"'
+  inv =. '1'
+  if. (flag -: 'true') +. (flag -: 'yes') +. (flag -: '1') do. inv =. '0' end.
+  name ; desc ; y ; inv
+)
+
+NB. Append one skill row. The first name wins.
+skill_add =: monad define
+  if. 4 ~: # y do. '' return. end.
+  name =. > {. y
+  if. 0 < # SKILLS do.
+    if. (< name) e. 0 {"1 SKILLS do. '' return. end.
+  end.
+  SKILLS =: SKILLS , 1 4 $ y
+  ''
 )
 
 NB. ================================================================
@@ -113,7 +131,7 @@ discover_skills_in =: monad define
       if. fexist skill_file do.
         result =. load_skill skill_file
         if. 0 < #result do.
-          SKILLS =: SKILLS , result
+          skill_add result
         else.
           echo 'SKILLS: skipping invalid skill: ' , skill_file
         end.
@@ -125,20 +143,43 @@ discover_skills_in =: monad define
 )
 
 NB. ================================================================
-NB. Discover all skills from all locations
-NB. Called at load time and can be re-called to refresh
-discover_all_skills =: monad define
-  SKILLS =: 0 3 $ <''
-  NB. Project-local skills
-  discover_skills_in '.'
-  NB. User-global skills
-  home =. 2!:5 'HOME'
-  if. 0 < #home do.
-    discover_skills_in home , '/.jpi'
+NB. Project skills from the working directory up to the repo root.
+walk_project_skills =: monad define
+  d =. 1!:43 ''
+  dirs =. 0 $ <''
+  for_i. i. 8 do.
+    dirs =. dirs , < d
+    if. fexist d , '/.git' do. break. end.
+    parent =. (d i: '/') {. d
+    if. (0 = # parent) +. parent -: d do. break. end.
+    d =. parent
   end.
-  NB. Plugin-packaged skills are discovered by plugins.ijs
-  NB. which calls discover_skills_in for each plugin root.
-  echo 'Skills loaded: ' , (": {. $ SKILLS) , ' skill(s)'
+  for_d. |. dirs do.
+    discover_skills_in > d
+    discover_skills_in (> d) , '/.agents'
+  end.
+  ''
+)
+
+NB. Discover all skills from all locations.
+NB. Called at load time and again by /reload.
+discover_all_skills =: monad define
+  SKILLS =: 0 4 $ <''
+  home =. ''
+  try. home =. > 2!:5 'HOME' catch. home =. '' end.
+  if. 0 < # home do.
+    discover_skills_in home , '/.jpi'
+    discover_skills_in home , '/.agents'
+  end.
+  ok =. 1
+  if. 3 = 4!:0 <'project_trusted' do. ok =. project_trusted '' end.
+  if. ok do. walk_project_skills '' end.
+  if. 0 = 4!:0 <'PLUGINS' do.
+    for_i. i. # PLUGINS do.
+      discover_skills_in > (< i, 2) { PLUGINS
+    end.
+  end.
+  echo 'Skills loaded: ' , (": # SKILLS) , ' skill(s)'
 )
 
 NB. ================================================================
@@ -150,6 +191,7 @@ get_skill_descriptions =: monad define
   if. 0 = # SKILLS do. '' return. end.
   parts =. 0 $ <''
   for_i. i. # SKILLS do.
+    if. '0' -: > (< i, 3) { SKILLS do. continue. end.
     name =. > (< i, 0) { SKILLS
     desc =. > (< i, 1) { SKILLS
     parts =. parts , < (name , ' (' , ((100 <. #desc) {. desc) , ')')
@@ -167,7 +209,9 @@ list_skills =: monad define
     name =. > (< i, 0) { SKILLS
     desc =. > (< i, 1) { SKILLS
     path =. > (< i, 2) { SKILLS
-    lines =. lines , < (name , '  -  ' , ((80 <. #desc) {. desc) , '  [' , path , ']')
+    hide =. ''
+    if. '0' -: > (< i, 3) { SKILLS do. hide =. '  (model: off)' end.
+    lines =. lines , < (name , '  -  ' , ((80 <. #desc) {. desc) , hide , '  [' , path , ']')
   end.
   ; lines ,each <LF
 )

@@ -16,6 +16,7 @@ API_URL_ollama =: 'http://localhost:11434/v1/chat/completions'
 API_URL_tcm =: 'https://tcmcguire.servehttp.com/v1/chat/completions'
 API_URL_hyai =: 'https://hostyourai.com/api/v1/chat/completions'
 API_URL_mistral =: 'https://api.mistral.ai/v1/chat/completions'
+API_URL_xai =: 'https://api.x.ai/v1/chat/completions'
 
 NB. Environment variable names for each provider
 ENV_KEY_openrouter =: 'OPENROUTER_API_KEY'
@@ -27,6 +28,7 @@ ENV_KEY_local =: 'LOCAL_API_KEY'
 ENV_KEY_ollama =: 'OLLAMA_API_KEY'
 ENV_KEY_tcm =: 'TCM_API_KEY'
 ENV_KEY_hyai =: 'HYAI_API_KEY'
+ENV_KEY_xai =: 'XAI_API_KEY'
 
 NB. Infer provider from the model string
 infer_provider =: monad define
@@ -43,6 +45,10 @@ infer_provider =: monad define
   if. 'mistral/' -: 8 {. y do. 'mistral' return. end.
   if. 'tcm/' -: 4 {. y do. 'tcm' return. end.
   if. 'hyai/' -: 5 {. y do. 'hyai' return. end.
+  NB. xai/ and a bare grok- id talk to api.x.ai. x-ai/ stays
+  NB. on OpenRouter, which is how that catalog spells Grok.
+  if. 'xai/' -: 4 {. y do. 'xai' return. end.
+  if. 'grok-' -: 5 {. y do. 'xai' return. end.
   'openrouter'
 )
 
@@ -61,6 +67,8 @@ model_for_api =: monad define
     NB. strip ONLY the uniform cohere/ prefix; the legacy forms
     NB. (command-*, north-*) pass through unchanged
     if. 'cohere/' -: 7 {. y do. 7 }. y else. y end.
+  case. 'xai' do.
+    if. 'xai/' -: 4 {. y do. 4 }. y else. y end.
   case. do. y end.
 )
 
@@ -100,6 +108,7 @@ context_limit =: monad define
   case. 'google' do. 1000000     NB. Gemini 1.5/2.0: 1M+
   case. 'openrouter' do. 128000  NB. varies by model; 128k safe modern default
   case. 'hyai' do. 128000        NB. HostYourAI serves open models; 128k safe default
+  case. 'xai' do. 131072         NB. grok-4 class: 128k
   case. do. 100000 end.           NB. local/ollama/tcm: conservative default
 )
 
@@ -208,6 +217,7 @@ update_config_state =: monad define
   case. 'tcm' do. API_URL =: API_URL_tcm
   case. 'hyai' do. API_URL =: API_URL_hyai
   case. 'mistral' do. API_URL =: API_URL_mistral
+  case. 'xai' do. API_URL =: API_URL_xai
   case. do. API_URL =: API_URL_openrouter end.
   
   NB. Set ENV_KEY based on PROVIDER
@@ -222,6 +232,7 @@ update_config_state =: monad define
   case. 'tcm' do. env =: ENV_KEY_tcm
   case. 'hyai' do. env =: ENV_KEY_hyai
   case. 'mistral' do. env =: ENV_KEY_mistral
+  case. 'xai' do. env =: ENV_KEY_xai
   case. do. env =: ENV_KEY_openrouter end.
   
   NB. Allow environment variables to override endpoints for self-hosted LLMs
@@ -391,6 +402,125 @@ load_think ''
 NB. Save current thinking config to disk
 save_think =: monad define
   ((": THINK_ON) , ' ' , ": THINK_BUDGET) fwrite CONFIG_THINK_FILE
+)
+
+NB. Name of the key line in ~/.jpi_providers. '' when unknown.
+provider_key_name =: monad define
+  select. tolower deb y
+  case. 'openrouter' do. 'OPENROUTER_API_KEY'
+  case. 'anthropic' do. 'ANTHROPIC_API_KEY'
+  case. 'cohere' do. 'COHERE_API_KEY'
+  case. 'google' do. 'GEMINI_API_KEY'
+  case. 'mistral' do. 'MISTRAL_API_KEY'
+  case. 'xai' do. 'XAI_API_KEY'
+  case. 'hyai' do. 'HYAI_API_KEY'
+  case. 'tcm' do. 'TCM_API_KEY'
+  case. 'local' do. 'LOCAL_API_KEY'
+  case. 'ollama' do. 'OLLAMA_API_KEY'
+  case. do. '' end.
+)
+
+NB. Read the providers file into boxed lines. Empty when absent.
+providers_lines =: monad define
+  if. -. fexist CONFIG_PROVIDERS_FILE do. 0 $ <'' return. end.
+  raw =. fread CONFIG_PROVIDERS_FILE
+  if. (2 ~: 3!:0 raw) +. 0 = # raw do. 0 $ <'' return. end.
+  <;._2 raw , (LF -. {: raw) # LF
+)
+
+NB. Write lines back and keep the file private. The value is
+NB. not echoed.
+providers_write =: monad define
+  text =. ''
+  if. 0 < # y do. text =. ; y ,each <LF end.
+  text fwrite CONFIG_PROVIDERS_FILE
+  try. 2!:0 'chmod 600 ' , CONFIG_PROVIDERS_FILE catch. end.
+  ''
+)
+
+NB. y = keyname ; value. Insert or replace that line.
+providers_put =: monad define
+  'k v' =. y
+  lines =. providers_lines ''
+  out =. 0 $ <''
+  found =. 0
+  for_l. lines do.
+    line =. > l
+    idx =. line i. '='
+    if. (idx < # line) *. k -: idx {. line do.
+      out =. out , < k , '=' , v
+      found =. 1
+    else.
+      out =. out , < line
+    end.
+  end.
+  if. -. found do. out =. out , < k , '=' , v end.
+  providers_write out
+)
+
+NB. Remove the line for this key name.
+providers_drop =: monad define
+  lines =. providers_lines ''
+  out =. 0 $ <''
+  for_l. lines do.
+    line =. > l
+    idx =. line i. '='
+    if. (idx < # line) *. y -: idx {. line do. continue. end.
+    out =. out , < line
+  end.
+  providers_write out
+)
+
+NB. /login [provider]. The key is read with echo off and only
+NB. its length is shown. An empty entry cancels.
+login_provider =: monad define
+  p =. deb tolower y
+  if. 0 = # p do. p =. PROVIDER end.
+  keyname =. provider_key_name p
+  if. 0 = # keyname do.
+    echo 'Unknown provider: ' , p
+    echo 'Providers: openrouter anthropic cohere google mistral xai hyai tcm local ollama'
+    return.
+  end.
+  wasraw =. 0
+  if. 3 = 4!:0 <'raw' do.
+    raw 0
+    wasraw =. 1
+  end.
+  ansfile =. '/tmp/jpi_login_' , (6!:0 'hhmmss')
+  cmd =. 'trap "stty echo </dev/tty 2>/dev/null" EXIT; stty -echo </dev/tty; printf "%s" "API key for ' , p , ' (input hidden): " >/dev/tty; IFS= read -r ans </dev/tty; printf "\n" >/dev/tty; printf "%s" "$ans" > ' , ansfile
+  try. 2!:0 cmd catch. end.
+  if. wasraw do. raw 1 end.
+  key =. ''
+  if. fexist ansfile do.
+    key =. fread ansfile
+    ferase ansfile
+    if. 2 ~: 3!:0 key do. key =. '' end.
+  end.
+  key =. key -. CR , LF
+  if. 0 = # key do.
+    echo 'Login cancelled.'
+    return.
+  end.
+  providers_put keyname ; key
+  (keyname , '_VAL') =: key
+  if. p -: PROVIDER do. API_KEY =: key end.
+  echo 'Saved ' , keyname , ' (' , (": # key) , ' characters).'
+)
+
+NB. /logout [provider]. Removes that one line.
+logout_provider =: monad define
+  p =. deb tolower y
+  if. 0 = # p do. p =. PROVIDER end.
+  keyname =. provider_key_name p
+  if. 0 = # keyname do.
+    echo 'Unknown provider: ' , p
+    return.
+  end.
+  providers_drop keyname
+  (keyname , '_VAL') =: ''
+  if. p -: PROVIDER do. API_KEY =: '' end.
+  echo 'Removed ' , keyname , '.'
 )
 
 echo 'config loaded. Provider: ' , PROVIDER , '  API_KEY length: ' , ": #API_KEY

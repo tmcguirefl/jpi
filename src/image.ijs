@@ -37,6 +37,31 @@ image_info =: monad define
   end.
 )
 
+NB. y = a tool result. Returns text ; mime ; base64.
+NB. mime is '' when the result has no image marker.
+image_mime =: monad define
+  e =. tolower y
+  if. ('.jpg' -: _4 {. e) +. ('.jpeg' -: _5 {. e) do. 'image/jpeg' return. end.
+  if. '.png' -: _4 {. e do. 'image/png' return. end.
+  if. '.gif' -: _4 {. e do. 'image/gif' return. end.
+  if. '.webp' -: _5 {. e do. 'image/webp' return. end.
+  'application/octet-stream'
+)
+
+split_jpi_image =: monad define
+  mark =. '[[jpi-image '
+  m =. mark E. y
+  if. -. +./ m do. y ; '' ; '' return. end.
+  a =. m i. 1
+  rest =. (a + # mark) }. y
+  b =. rest i. ']'
+  mime =. b {. rest
+  tail =. (b + 2) }. rest
+  if. (0 < # tail) *. LF = {. tail do. tail =. }. tail end.
+  b64 =. tail -. ' ', LF, CR, TAB
+  (a {. y) ; mime ; b64
+)
+
 NB. Display an image inline using iTerm2 protocol (OSC 1337)
 NB. Works in iTerm2, WezTerm, Ghostty, etc.
 NB. y = filepath

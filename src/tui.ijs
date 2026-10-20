@@ -491,6 +491,40 @@ tui_echo =: monad define
   end.
 )
 
+NB. Live tokens. STREAM_VIS is the raw text of the current reply.
+NB. STREAM_BASE is the first TUI_OUTPUT line that belongs to it.
+STREAM_VIS =: ''
+STREAM_BASE =: 0
+
+tui_stream_add =: monad define
+  if. 0 = # y do. '' return. end.
+  if. 0 = # STREAM_VIS do. STREAM_BASE =: # TUI_OUTPUT end.
+  STREAM_VIS =: STREAM_VIS , y
+  shown =. STREAM_VIS
+  if. LF ~: {: shown do. shown =. shown , LF end.
+  lines =. <;._2 shown
+  if. STREAM_BASE > # TUI_OUTPUT do. STREAM_BASE =: # TUI_OUTPUT end.
+  TUI_OUTPUT =: (STREAM_BASE {. TUI_OUTPUT) , lines
+  tui_scroll_follow ''
+  tui_redraw ''
+  ''
+)
+
+NB. Replace the plain token lines with the markdown rendering.
+tui_stream_end =: monad define
+  if. 0 < # STREAM_VIS do.
+    rendered =. STREAM_VIS
+    if. 3 = 4!:0 <'md_render_md_' do. rendered =. md_render_md_ STREAM_VIS end.
+    if. (0 = # rendered) +. LF ~: {: rendered do. rendered =. rendered , LF end.
+    lines =. <;._2 rendered
+    if. STREAM_BASE > # TUI_OUTPUT do. STREAM_BASE =: # TUI_OUTPUT end.
+    TUI_OUTPUT =: (STREAM_BASE {. TUI_OUTPUT) , lines
+    STREAM_VIS =: ''
+  end.
+  tui_redraw ''
+  ''
+)
+
 NB. ============================================================
 NB. Open TUI output in an external pager (auto-detects best available).
 NB. Temporarily leaves raw mode + disables mouse so the external
@@ -606,9 +640,25 @@ tui_process =: monad define
     if. 'retry' -: cmd do. tui_recall_last_prompt '' return. end.
     agent cmd
   elseif. '!' = {.y do.
-    cmd =. }.y
-    'prompt' tui_print '! ',cmd
-    agent 'run ',cmd
+    NB. ! keeps the command and its output in the conversation.
+    NB. !! only prints the output.
+    if. '!!' -: 2 {. y do.
+      cmd =. deb 2 }. y
+      'prompt' tui_print '!! ' , cmd
+      agent 'run ' , cmd
+    else.
+      cmd =. deb }. y
+      'prompt' tui_print '! ' , cmd
+      if. -. is_safe cmd do.
+        echo 'Command blocked for safety.'
+        return.
+      end.
+      out =. run_cmd_str cmd
+      echo out
+      if. 3 = 4!:0 <'hist_add' do.
+        hist_add 'user' mk_msg ('! ' , cmd , LF , out)
+      end.
+    end.
   else.
     'prompt' tui_print '> ',y
     agent 'ask ',y
@@ -691,7 +741,17 @@ tui_steer_poll =: monad define
         end.
         NB. any other ESC [ x (arrows, etc.): rest swallowed with x
       else.
-        NB. ESC followed by non-[ (Alt-Enter ESC CR etc.): drop the pair
+        NB. Alt+Enter queues a follow-up for after this whole task.
+        NB. Enter, above, steers at the next tool boundary.
+        if. k2 e. 10 13 do.
+          if. 0 < # TUI_INPUT do.
+            FOLLOW_MSG =: TUI_INPUT
+            TUI_INPUT =: ''
+            TUI_CURSOR =: 0
+            'muted' tui_print '(follow-up queued: ' , FOLLOW_MSG , ')'
+            if. -. keyp 0 do. tui_redraw '' end.
+          end.
+        end.
       end.
       continue.
     end.
@@ -1102,6 +1162,11 @@ tui_handle_key =: monad define
 
   if. k=3 do. TUI_RUNNING=:0 return. end.   NB. Ctrl-C
 
+  if. k = 9 do.               NB. Tab: complete the path at the cursor
+    if. 3 = 4!:0 <'tui_tab_complete' do. tui_tab_complete '' end.
+    return.
+  end.
+
   if. k=23 do. mouse_toggle '' return. end.  NB. Ctrl-W toggle mouse wheel
 
   if. k=12 do.                NB. Ctrl-L: re-enable follow + redraw
@@ -1249,6 +1314,13 @@ tui_run =: monad define
   tui_print ''
 
   tui_redraw''
+
+  NB. --resume asks which session to open. --continue already
+  NB. selected one in init_session.
+  if. (0 = 4!:0 <'JPI_RESUME_PICK') *. JPI_RESUME_PICK do.
+    list_sessions ''
+    tui_redraw ''
+  end.
 
   while. TUI_RUNNING do.
     k =. rkey''

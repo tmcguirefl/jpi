@@ -135,8 +135,7 @@ load_extensions =: monad define
   plugins_dir =. '../plugins'
   if. -. fexist plugins_dir do. return. end.
   if. -. is_builtin_plugins plugins_dir do.
-    pare =. ((1!:43 '') i: '/') {. 1!:43 ''
-    if. -. trust_gate pare do. '' return. end.
+    if. -. project_trusted '' do. '' return. end.
   end.
   try.
     files =. 2!:0 'ls ' , plugins_dir , '/*.ijs 2>/dev/null'

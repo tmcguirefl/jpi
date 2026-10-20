@@ -142,6 +142,39 @@ serve_session_names =: monad define
   _6 }. each raw
 )
 
+NB. Replay one stored line. Legacy files are one message per
+NB. line. Tree files wrap the message in a row, and the meta
+NB. line is not a message.
+serve_replay_line =: monad define
+  ln =. y
+  if. 0 = # ln do. return. end.
+  o =. ''
+  try. o =. dec_json ln catch. end.
+  if. 2 ~: #$ o do.
+    'history' rpc_emit ln
+    return.
+  end.
+  typ =. 'type' sj_text o
+  if. 0 = # typ do.
+    'history' rpc_emit ln
+    return.
+  end.
+  if. typ -: 'meta' do. return. end.
+  body =. 'body' sj_text o
+  if. 0 = # body do. return. end.
+  if. typ -: 'message' do.
+    'history' rpc_emit body
+    return.
+  end.
+  if. typ -: 'compaction' do.
+    body =. '<summary>' , LF , body , LF , '</summary>'
+  end.
+  if. (typ -: 'compaction') +. typ -: 'note' do.
+    'history' rpc_emit 'user' mk_msg body
+  end.
+  ''
+)
+
 serve_attach =: monad define
   name =. deb y
   if. 0 = # name do.
@@ -159,7 +192,7 @@ serve_attach =: monad define
   if. 0 < # raw do.
     if. LF ~: {: raw do. raw =. raw , LF end.
     for_m. <;._2 raw do.
-      'history' rpc_emit > m
+      serve_replay_line > m
     end.
   end.
   'attached' rpc_emit CURRENT_SESSION , ' (' , (": # HISTORY) , ' messages)'

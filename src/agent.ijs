@@ -18,8 +18,10 @@ load 'mcp.ijs'
 load 'plugins.ijs'
 load 'extensions.ijs'
 
-NB. Discover Agent Plugins and Skills after all modules are loaded
+NB. Discover Agent Plugins and Skills after all modules are loaded.
+NB. Skills are scanned once here, including plugin skills.
 discover_all_plugins ''
+discover_all_skills ''
 
 NB. ----------------------------------------------------------------
 NB. Model listing — fetch_models helper + list_models
@@ -176,6 +178,8 @@ list_models =: monad define
   ids_list =. ids_list , < 'local/llama-server'
   models_list =. models_list , < 'local/ollama  -  [Localhost 11434]'
   ids_list =. ids_list , < 'local/ollama'
+  models_list =. models_list , < 'xai/grok-4.7  -  [xAI]'
+  ids_list =. ids_list , < 'xai/grok-4.7'
 
   NB. Fetch from Google (special API — key in x-goog-api-key header)
   'ml il' =. fetch_google_models ''
@@ -209,6 +213,10 @@ list_models =: monad define
   NB. (command-*, aya...); legacy command-*/north-* names keep
   NB. working unchanged.
   'ml il' =. fetch_models 'Cohere';'https://api.cohere.com/v1/models';'COHERE_API_KEY';'models';'name';'';'cohere/';'cohere/';'Cohere API';1;'endpoints'
+  models_list =. models_list , ml
+  ids_list =. ids_list , il
+
+  'ml il' =. fetch_models 'xAI';'https://api.x.ai/v1/models';'XAI_API_KEY';'data';'id';'';'xai/';'xai/';'xAI';1
   models_list =. models_list , ml
   ids_list =. ids_list , il
 
@@ -303,10 +311,14 @@ write_verb =: monad define
 )
 
 ask_verb =: monad define
+  q =. y
+  if. 3 = 4!:0 <'expand_mentions' do. q =. expand_mentions y end.
   echo 'Asking LLM...'
-  log 'ask: ', y
-  reply =. llm_ask y
-  echo reply
+  log 'ask: ', q
+  reply =. llm_ask q
+  shown =. 0
+  try. shown =. STREAM_SHOWN catch. shown =. 0 end.
+  if. shown = 0 do. echo reply end.
 )
 
 NB. /help [word] - list commands grouped, one line each.
@@ -334,10 +346,14 @@ help_lines =: monad define
   h =. h , <'conversation:'
   h =. h , <'  ask [text]       - send a prompt to the model'
   h =. h , <'  clear            - start a fresh conversation'
-  h =. h , <'  compact [N]      - summarize the oldest N messages (default half)'
+  h =. h , <'  compact [N|text] - summarize the oldest N messages (default half);'
+  h =. h , <'                     text is extra guidance for the summary'
   h =. h , <'  retry            - recall the last prompt for editing (TUI)'
   h =. h , <'  session [name]   - switch session (no name: pick from list)'
-  h =. h , <'  fork [name]      - branch this conversation into a new session'
+  h =. h , <'  fork [name [id]] - branch; an id copies only through that entry'
+  h =. h , <'  tree [id]        - user messages on this branch; an id checks out'
+  h =. h , <'  clone [name]     - copy this branch into a new session'
+  h =. h , <'  name [label]     - set the session display name'
   h =. h , <'  export / import  - save / reload the conversation (JSONL)'
   h =. h , <'  transcript [f]   - write the conversation as markdown'
   h =. h , <'model and budget:'
@@ -352,7 +368,8 @@ help_lines =: monad define
   h =. h , <'  prompt           - show the system prompt'
   h =. h , <'tools and files:'
   h =. h , <'  read [f]         - read a file into context'
-  h =. h , <'  run [cmd]        - run a shell command (also !cmd)'
+  h =. h , <'  run [cmd]        - run a shell command (!cmd keeps the output'
+  h =. h , <'                     in the conversation, !!cmd does not)'
   h =. h , <'  edit / write     - modify or create files'
   h =. h , <'  grep / find / git - project search and git helpers'
   h =. h , <'viewing:'
@@ -361,6 +378,10 @@ help_lines =: monad define
   h =. h , <'  theme            - color theme picker'
   h =. h , <'system:'
   h =. h , <'  skills / plugins - list loaded skills / plugins'
+  h =. h , <'  skill:name       - run that skill as the next prompt'
+  h =. h , <'  login [provider] - save an API key (input is hidden)'
+  h =. h , <'  logout [provider]- remove a saved API key'
+  h =. h , <'  reload           - reload skills, prompts, and the theme'
   h =. h , <'  help [word]      - this list; a word filters it'
   h =. h , <'  exit             - quit (TUI: also Ctrl+C)'
   h
@@ -380,9 +401,16 @@ session_verb =: monad define
   switch_session y
 )
 
-NB. fork: copy the current session under a new name and switch to
-NB. it (see session.ijs fork_session). '' gets <current>-fork-<ts>.
-fork_verb =: fork_session
+NB. fork [name [id]]. One word copies the active head. Two words
+NB. copy only through that entry id.
+fork_verb =: monad define
+  parts =. chopstring y
+  if. 2 = # parts do.
+    (> 0 { parts) fork_at > 1 { parts
+  else.
+    fork_session y
+  end.
+)
 
 NB. Explicit original:
 NB.   export_verb =: monad define
@@ -572,13 +600,80 @@ find_verb =: monad define
 )
 
 compact_verb =: monad define
-  if. 0 = #y do.
-    NB. default carefully compacts half the history
-    idx =. <. (#HISTORY) % 2
+  arg =. deb y
+  note =. ''
+  if. 0 = # arg do.
+    idx =. <. (# HISTORY) % 2
+  elseif. *./ arg e. '0123456789' do.
+    idx =. ". arg
   else.
-    try. idx =. 0 ". y catch. idx =. 4 end.
+    idx =. <. (# HISTORY) % 2
+    note =. arg
   end.
-  force_compact idx
+  if. 0 < # note do.
+    force_compact idx ; note
+  else.
+    force_compact idx
+  end.
+)
+
+NB. /tree lists user messages on the active branch. /tree id
+NB. moves the head to that entry.
+tree_verb =: monad define
+  arg =. deb y
+  if. 0 < # arg do.
+    session_checkout arg
+    return.
+  end.
+  echo 'Head: ' , SESSION_HEAD
+  pts =. session_user_points ''
+  if. 0 = # pts do.
+    echo 'No user messages on this branch.'
+    return.
+  end.
+  for_i. i. # pts do.
+    echo (> (< i, 0) { pts) , '  ' , > (< i, 1) { pts
+  end.
+)
+
+NB. /clone copies the active branch. Same as /fork.
+clone_verb =: clone_session
+
+NB. /name sets the display name. The file name stays put.
+name_verb =: session_set_label
+
+login_verb =: login_provider
+logout_verb =: logout_provider
+
+NB. Skills, prompt templates, and the theme. Does not reconnect
+NB. MCP servers and does not run extensions again.
+reload_verb =: monad define
+  if. 3 = 4!:0 <'discover_all_skills' do. discover_all_skills '' end.
+  if. 3 = 4!:0 <'discover_prompts' do. discover_prompts '' end.
+  if. 3 = 4!:0 <'apply_theme' do.
+    try. apply_theme '' catch. end.
+  end.
+  echo 'Reloaded skills, prompts, and theme. Project context is read on the next request.'
+)
+
+NB. /skill:name reads that SKILL.md and sends it as the prompt.
+skill_run =: monad define
+  'name args' =. y
+  if. 0 = # SKILLS do.
+    echo 'No skills loaded.'
+    return.
+  end.
+  names =. tolower each 0 {"1 SKILLS
+  i =. names i. < tolower name
+  if. i >: # SKILLS do.
+    echo 'Unknown skill: ' , name
+    return.
+  end.
+  path =. > (< i, 2) { SKILLS
+  body =. ''
+  try. body =. fread path catch. body =. '' end.
+  if. 2 ~: 3!:0 body do. body =. '' end.
+  ask_verb body , LF , 'Arguments: ' , args
 )
 
 NB. /context - the context BUDGET: the money knob. A lower
@@ -635,11 +730,11 @@ NB. )
 plugins_verb =: echo @ list_plugins
 
 NB. Boxed action names
-ACTIONS =: 'read';'run';'edit';'write';'ask';'help';'clear';'export';'import';'session';'fork';'model';'compact';'context';'status';'transcript';'prompt';'usage';'git';'grep';'find';'theme';'skills';'plugins';'think'
+ACTIONS =: 'read';'run';'edit';'write';'ask';'help';'clear';'export';'import';'session';'fork';'model';'compact';'context';'status';'transcript';'prompt';'usage';'git';'grep';'find';'theme';'skills';'plugins';'think';'tree';'clone';'name';'login';'logout';'reload'
 
 NB. Gerund list must stay in sync with ACTIONS.
 NB. Assert catches mismatches at load time.
-ACTION_GERUNDS =: read_verb`run_verb`edit_verb`write_verb`ask_verb`help_verb`clear_verb`export_verb`import_verb`session_verb`fork_verb`model_verb`compact_verb`context_verb`status_verb`transcript_verb`prompt_verb`usage_verb`git_verb`grep_verb`find_verb`theme_verb`skills_verb`plugins_verb`think_verb
+ACTION_GERUNDS =: read_verb`run_verb`edit_verb`write_verb`ask_verb`help_verb`clear_verb`export_verb`import_verb`session_verb`fork_verb`model_verb`compact_verb`context_verb`status_verb`transcript_verb`prompt_verb`usage_verb`git_verb`grep_verb`find_verb`theme_verb`skills_verb`plugins_verb`think_verb`tree_verb`clone_verb`name_verb`login_verb`logout_verb`reload_verb
 assert (#ACTIONS) = #ACTION_GERUNDS
 
 NB. ----------------------------------------------------------------
@@ -651,16 +746,33 @@ agent =: monad define
   cmd =. tolower > {. words
   cmd_len =. # > {. words
   remainder =. dlb cmd_len }. raw
+  if. 'skill:' -: 6 {. cmd do.
+    skill_run (6 }. > {. words) ; remainder
+    return.
+  end.
   idx =. ACTIONS i. < cmd
   if. idx < #ACTIONS do.
-    NB. built-in command
+    NB. built-in command. These win over a template of the same name.
     (ACTION_GERUNDS @. idx) remainder
   elseif. is_ext_command cmd do.
     NB. extension command
     cmd ext_exec_command remainder
   elseif. do.
-    echo 'Unknown command: ' , cmd
+    hit =. 0
+    if. 3 = 4!:0 <'is_prompt' do.
+      if. is_prompt cmd do.
+        cmd prompt_run remainder
+        hit =. 1
+      end.
+    end.
+    if. -. hit do.
+      echo 'Unknown command: ' , cmd
+    end.
   end.
 )
+
+load 'editor.ijs'
+load 'prompts.ijs'
+discover_prompts ''
 
 echo 'J-PI agent loaded.'

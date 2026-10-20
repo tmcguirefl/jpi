@@ -72,6 +72,10 @@ is_builtin_plugins =: monad define
   (< p) e. BUILTIN_PLUGIN_DIRS
 )
 
+NB. Paths refused this process. A "no" is not written to disk, and
+NB. without this list every later loader would ask again.
+TRUST_NO =: 0 $ <''
+
 NB. already answered 'y' before?
 is_trusted =: monad define
   if. (0 = # TRUSTED_FILE) +. -. fexist TRUSTED_FILE do. 0 return. end.
@@ -89,9 +93,10 @@ NB. include echo/escape bytes, and a loose match on those could
 NB. auto-trust. Strict equality against the file's content.
 trust_gate =: monad define
   if. is_trusted y do. 1 return. end.
+  if. (< y) e. TRUST_NO do. 0 return. end.
   if. 0 = # TRUSTED_FILE do. 0 return. end.
   ansfile =. '/tmp/jpi_trust_ans_' , 6!:0 'hhmmss'
-  cmd =. 'printf "%s" "jpi: first time in ' , y , ': load its local jpi plugins (spawns servers, runs .ijs)? [y/N] " >/dev/tty 2>/dev/null; read -r ans </dev/tty 2>/dev/null; printf "%s" "$ans" >' , ansfile , ' 2>/dev/null'
+  cmd =. 'printf "%s" "jpi: first time in ' , y , ': load its project files (plugins, skills, prompts, AGENTS.md)? [y/N] " >/dev/tty 2>/dev/null; read -r ans </dev/tty 2>/dev/null; printf "%s" "$ans" >' , ansfile , ' 2>/dev/null'
   2!:0 cmd
   ans =. ''
   if. fexist ansfile do.
@@ -108,9 +113,32 @@ trust_gate =: monad define
     (y , LF) fappend TRUSTED_FILE
     1
   else.
-    echo 'TRUST: skipping project-local plugins in ' , y , ' (untrusted; answer y once interactively to trust it)'
+    TRUST_NO =: TRUST_NO , < y
+    echo 'TRUST: skipping project files in ' , y , ' (untrusted; answer y once interactively to trust it)'
     0
   end.
+)
+
+NB. 1 when project skills, prompts, context files, and plugins may
+NB. load. User-global files are not gated. A project with none of
+NB. these does not prompt.
+project_trusted =: monad define
+  cwd =. 1!:43 ''
+  if. is_trusted cwd do. 1 return. end.
+  if. (< cwd) e. TRUST_NO do. 0 return. end.
+  need =. 0
+  d =. cwd
+  for_i. i. 8 do.
+    if. (fexist d , '/plugins') +. (fexist d , '/skills') +. (fexist d , '/.agents') +. (fexist d , '/prompts') +. (fexist d , '/.jpi') +. (fexist d , '/AGENTS.md') +. (fexist d , '/JPILOT.md') +. (fexist d , '/CLAUDE.md') do.
+      need =. 1
+    end.
+    if. fexist d , '/.git' do. break. end.
+    parent =. (d i: '/') {. d
+    if. (0 = # parent) +. parent -: d do. break. end.
+    d =. parent
+  end.
+  if. 0 = need do. 1 return. end.
+  trust_gate cwd
 )
 
 NB. numeric JSON field: y = a gethash_json result. Returns the

@@ -3,21 +3,44 @@ NB. system_prompt.ijs
 
 load 'git.ijs'
 
-NB. Project context filename (like CLAUDE.md for pi)
-PROJECT_CONTEXT_FILE =: 'JPILOT.md'
+NB. Instruction files read from the working directory up to the
+NB. repo root. Nearer files are listed after the root file.
+PROJECT_CONTEXT_NAMES =: 'AGENTS.md';'JPILOT.md';'CLAUDE.md'
 
-NB. Try to load project context from cwd or parent dirs
+NB. Root first, then each child down to the working directory.
+context_dirs =: monad define
+  d =. 1!:43 ''
+  dirs =. 0 $ <''
+  for_i. i. 8 do.
+    dirs =. dirs , < d
+    if. fexist d , '/.git' do. break. end.
+    parent =. (d i: '/') {. d
+    if. (0 = # parent) +. parent -: d do. break. end.
+    d =. parent
+  end.
+  |. dirs
+)
+
+NB. Project instructions, after the trust answer. A "no" yields
+NB. an empty string and does not ask again.
 load_project_context =: monad define
-  NB. check current dir first
-  if. fexist PROJECT_CONTEXT_FILE do.
-    fread PROJECT_CONTEXT_FILE return.
+  ok =. 1
+  if. 3 = 4!:0 <'project_trusted' do. ok =. project_trusted '' end.
+  if. -. ok do. '' return. end.
+  out =. ''
+  for_d. context_dirs '' do.
+    d =. > d
+    for_n. PROJECT_CONTEXT_NAMES do.
+      p =. d , '/' , > n
+      if. -. fexist p do. continue. end.
+      raw =. ''
+      try. raw =. fread p catch. raw =. '' end.
+      if. (2 = 3!:0 raw) *. 0 < # raw do.
+        out =. out , LF , '--- ' , p , ' ---' , LF , raw
+      end.
+    end.
   end.
-  NB. check parent dir
-  parent =. '../' , PROJECT_CONTEXT_FILE
-  if. fexist parent do.
-    fread parent return.
-  end.
-  ''
+  out
 )
 
 NB. Get a compact directory listing for context (top-level files only)
@@ -100,11 +123,14 @@ get_system_prompt =: monad define
   parts =. (0$<'') , <'You are J-PI, a coding agent built in the J programming language.'
   parts =. parts , <' You help users by reading files, executing commands, editing code, and writing files.'
   parts =. parts , <' You have access to the following tools:'
-  parts =. parts , <' read (read file contents with optional offset/limit),'
+  parts =. parts , <' read (read file contents with optional offset/limit; image files come back as images),'
   parts =. parts , <' bash (execute shell commands),'
   parts =. parts , <' edit (precise find/replace in files, old text must be unique),'
   parts =. parts , <' write (create/overwrite files, auto-creates directories),'
-  parts =. parts , <' j (evaluate J code directly in the J-PI interpreter session).'
+  parts =. parts , <' j (evaluate J code directly in the J-PI interpreter session),'
+  parts =. parts , <' grep (search file contents),'
+  parts =. parts , <' find (find files by name),'
+  parts =. parts , <' ls (list a directory).'
   parts =. parts , <' You are working in the J language: if a task asks for the VALUE of a J expression, always evaluate it with the j tool before answering - never answer a value question from memory.'
   NB. JCORE_PATH is set in utils.ijs from the JPI_JCORE env var;
   NB. try/catch guards exotic load orders where utils is absent.

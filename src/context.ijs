@@ -33,27 +33,46 @@ NB.     +/ est_tokens&> HISTORY
 NB. )
 history_tokens =: +/ @: (est_tokens &>)
 
-NB. Force manual compaction of the oldest N messages
-NB. y = number of messages to compact
+NB. Force manual compaction of the oldest N messages.
+NB. y = count, or count ; extra instructions.
 force_compact =: monad define
   idx =. y
-  if. idx > (#HISTORY) - 2 do. idx =. (#HISTORY) - 2 end.
-  if. idx < 2 do. 
-    echo 'Not enough history to compact.'
-    return. 
+  note =. ''
+  if. 32 = 3!:0 y do.
+    idx =. > {. y
+    if. 1 < # y do. note =. > 1 { y end.
   end.
-  
+  if. idx > (#HISTORY) - 2 do. idx =. (#HISTORY) - 2 end.
+  if. idx < 2 do.
+    echo 'Not enough history to compact.'
+    return.
+  end.
+
   if. 2 | idx do. idx =. idx + 1 end.
   if. idx > #HISTORY do. idx =. #HISTORY end.
-  perform_compaction idx
+  if. 0 < # note do.
+    perform_compaction idx ; note
+  else.
+    perform_compaction idx
+  end.
 )
 
-NB. Internal compaction execution given an index
+NB. Internal compaction. y = index, or index ; extra instructions.
+NB. The summary replaces those turns in the model view. The
+NB. original rows stay in the session file.
 perform_compaction =: monad define
   idx =. y
+  note =. ''
+  if. 32 = 3!:0 y do.
+    idx =. > {. y
+    if. 1 < # y do. note =. > 1 { y end.
+  end.
   if. idx < 2 do. return. end.
 
-  sys_prompt =. 'You are a vital memory manager for an autonomous coding agent. Summarize the following early conversation turns into a dense paragraph. Retain all crucial facts, file paths discussed, constraints, code snippets requested, and decisions made. This summary will permanently replace the raw messages to save context space, so omit nothing that is needed for future reasoning. Output ONLY the summary.'
+  sys_prompt =. 'You are a vital memory manager for an autonomous coding agent. Summarize the following early conversation turns into a dense paragraph. Retain all crucial facts, file paths discussed, constraints, code snippets requested, and decisions made. The original turns stay in the session file. The summary is what the model will see in their place, so omit nothing that is needed for future reasoning. Output ONLY the summary.'
+  if. 0 < # note do.
+    sys_prompt =. sys_prompt , ' Additional focus: ' , note
+  end.
   sys_msg =. 'system' mk_msg sys_prompt
   
   echo 'Compacting oldest ' , (": idx) , ' messages from context buffer...'
@@ -92,9 +111,14 @@ perform_compaction =: monad define
     
     summary =. get_or_content resp
     if. 0 < #summary do.
-      new_msg =. 'assistant' mk_msg '<summary>' , LF , summary , LF , '</summary>'
-      HISTORY =: (< new_msg) , idx }. HISTORY
-      echo 'Context compacted seamlessly.'
+      if. 3 = 4!:0 <'hist_compact' do.
+        idx hist_compact summary
+        echo 'Context compacted. Original turns remain in the session file.'
+      else.
+        new_msg =. 'assistant' mk_msg '<summary>' , LF , summary , LF , '</summary>'
+        HISTORY =: (< new_msg) , idx }. HISTORY
+        echo 'Context compacted seamlessly.'
+      end.
       if. 3 = 4!:0 <'tui_redraw' do. tui_redraw'' end.
     end.
   catch.

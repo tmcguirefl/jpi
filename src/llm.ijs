@@ -16,6 +16,9 @@ RUN_PARAMS   =: '{"type":"object","properties":{"command":{"type":"string","desc
 EDIT_PARAMS  =: '{"type":"object","properties":{"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["path","old_text","new_text"]}'
 WRITE_PARAMS =: '{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}'
 J_PARAMS     =: '{"type":"object","properties":{"code":{"type":"string","description":"J code to evaluate"}},"required":["code"]}'
+GREP_PARAMS  =: '{"type":"object","properties":{"pattern":{"type":"string","description":"Search text"},"path":{"type":"string","description":"File or directory. Default is ."}},"required":["pattern"]}'
+FIND_PARAMS  =: '{"type":"object","properties":{"path":{"type":"string","description":"Directory to start in. Default is ."},"name":{"type":"string","description":"Name pattern, for example *.ijs"}},"required":[]}'
+LS_PARAMS    =: '{"type":"object","properties":{"path":{"type":"string","description":"Directory. Default is ."}},"required":[]}'
 
 NB. ----------------------------------------------------------------
 NB. Build a single tool JSON string
@@ -32,10 +35,12 @@ NB. Anthropic uses input_schema and no function wrapper; all other
 NB. providers (openrouter, google, tcm, local, ollama, cohere, hyai)
 NB. use the {"type":"function","function":...} form with parameters.
 get_tools =: monad define
-  defs =. (<'read';'Read file contents';READ_PARAMS) , (<'bash';'Execute shell command';RUN_PARAMS) , (<'edit';'Edit file with find/replace';EDIT_PARAMS) , (<'write';'Write content to file';WRITE_PARAMS) , (<'j';'Evaluate J programming language code directly in the agent interpreter session';J_PARAMS)
+  defs =. (<'read';'Read file contents. Image files are returned as an image when the provider accepts one.';READ_PARAMS) , (<'bash';'Execute shell command';RUN_PARAMS) , (<'edit';'Edit file with find/replace';EDIT_PARAMS) , (<'write';'Write content to file';WRITE_PARAMS) , (<'j';'Evaluate J programming language code directly in the agent interpreter session';J_PARAMS) , (<'grep';'Search file contents. pattern is required, path defaults to the working directory.';GREP_PARAMS) , (<'find';'Find files by name under a directory.';FIND_PARAMS) , (<'ls';'List a directory.';LS_PARAMS)
   r =. ''
   for_d. defs do.
-    t =. (schema_key '') mk_tool > d
+    'tn td tp0' =. > d
+    if. -. tool_selected tn do. continue. end.
+    t =. (schema_key '') mk_tool tn ; td ; tp0
     if. uses_openai_tools '' do.
       r =. r , ',' , '{"type":"function","function":' , t , '}'
     else.
@@ -44,8 +49,12 @@ get_tools =: monad define
   end.
   NB. append extension tools if any
   r =. r , get_ext_tools_json ''
-  NB. append MCP server tools if any
-  r =. r , get_mcp_tools_json ''
+  NB. append MCP server tools if any. --no-mcp sets JPI_NO_MCP.
+  mcp_off =. ''
+  try. mcp_off =. > 2!:5 'JPI_NO_MCP' catch. mcp_off =. '' end.
+  if. (2 ~: 3!:0 mcp_off) +. 0 = # mcp_off do.
+    r =. r , get_mcp_tools_json ''
+  end.
   '[' , (}. r) , ']'
 )
 
@@ -60,8 +69,67 @@ MAX_TOOL_LOOPS =: 1e9
 
 NB. Reset conversation
 clear_history =: monad define
-  HISTORY =: 0 $ <''
+  if. 3 = 4!:0 <'session_new_branch' do.
+    session_new_branch ''
+  else.
+    HISTORY =: 0 $ <''
+  end.
   echo 'Conversation cleared.'
+)
+
+NB. Session tree, when loaded, records the message. Tests that
+NB. load llm.ijs alone keep the flat HISTORY list.
+hist_add =: monad define
+  if. 3 = 4!:0 <'hist_append' do. hist_append y else. HISTORY =: HISTORY , < y end.
+  ''
+)
+
+hist_cut =: monad define
+  if. 3 = 4!:0 <'hist_rewind' do. hist_rewind y else. HISTORY =: y {. HISTORY end.
+  ''
+)
+
+NB. JPI_TOOLS is a comma list. +name and -name edit the default
+NB. set. Any other list is the only tools the model may call.
+NB. A trailing * matches a prefix.
+tool_selected =: monad define
+  spec =. ''
+  try. spec =. > 2!:5 'JPI_TOOLS' catch. spec =. '' end.
+  if. 2 ~: 3!:0 spec do. 1 return. end.
+  spec =. deb spec
+  if. 0 = # spec do. 1 return. end.
+  parts =. 0 $ <''
+  cur =. ''
+  t =. spec , ','
+  for_i. i. # t do.
+    c =. i { t
+    if. c = ',' do.
+      if. 0 < # deb cur do. parts =. parts , < deb cur end.
+      cur =. ''
+    else.
+      cur =. cur , c
+    end.
+  end.
+  delta =. 0
+  for_p. parts do.
+    if. ({. > p) e. '+-' do. delta =. 1 end.
+  end.
+  on =. delta
+  for_p. parts do.
+    p =. > p
+    sign =. ' '
+    pat =. p
+    if. ({. p) e. '+-' do. sign =. {. p [ pat =. }. p end.
+    hit =. 0
+    if. '*' -: pat do. hit =. 1
+    elseif. ('*' = {: pat) *. (1 < # pat) do. hit =. (}: pat) -: (# }: pat) {. y
+    elseif. do. hit =. pat -: y
+    end.
+    if. hit do.
+      if. sign = '-' do. on =. 0 else. on =. 1 end.
+    end.
+  end.
+  on
 )
 
 NB. Build a JSON message string for a role/content pair
@@ -79,6 +147,9 @@ NB. (one model-turn latency); anything still pending when an ask
 NB. ends is injected at the start of the next ask, so nothing
 NB. typed is ever silently dropped.
 STEER_MSG =: ''
+NB. Alt+Enter while a turn is running. Injected only after the
+NB. model finishes the task, not at the next tool boundary.
+FOLLOW_MSG =: ''
 
 NB. 1 when the user hit Esc during llm_call, or the wait gave up.
 NB. llm_ask drops the messages added for that turn.
@@ -177,6 +248,8 @@ is_json_null =: monad define
   (2 = 3!:0 v) *. 'json_null' -: v
 )
 
+load 'stream.ijs'
+
 NB. ----------------------------------------------------------------
 NB. Direct Anthropic Messages API.
 NB. History stays in the OpenAI shape the tool loop stores.
@@ -201,6 +274,15 @@ anth_blocks =: monad define
     c =. > 'content' gethash_json o
     if. (_1 -: c) +. is_json_null c do. c =. '' end.
     if. 2 ~: 3!:0 c do. c =. ": c end.
+    if. 3 = 4!:0 <'split_jpi_image' do.
+      'text mime b64' =. split_jpi_image c
+      if. 0 < # mime do.
+        txt =. '{"type":"text","text":' , (enc_json_fixed text) , '}'
+        img =. '{"type":"image","source":{"type":"base64","media_type":' , (enc_json_fixed mime) , ',"data":' , (enc_json_fixed b64) , '}}'
+        blk =. '{"type":"tool_result","tool_use_id":' , (enc_json_fixed id) , ',"content":[' , txt , ',' , img , ']}'
+        'user' ; < , < blk return.
+      end.
+    end.
     blk =. '{"type":"tool_result","tool_use_id":' , (enc_json_fixed id) , ',"content":' , (enc_json_fixed c) , '}'
     'user' ; < , < blk return.
   end.
@@ -363,6 +445,26 @@ normalize_anthropic =: monad define
   (, < 'choices') ,: < , < choice
 )
 
+NB. A tool message that carries [[jpi-image mime]] becomes an
+NB. OpenAI content array. Stored history keeps the marker text.
+expand_image_msg =: monad define
+  if. 3 ~: 4!:0 <'split_jpi_image' do. y return. end.
+  if. -. '[[jpi-image ' +./@E. y do. y return. end.
+  o =. ''
+  try. o =. dec_json y catch. y return. end.
+  if. 2 ~: #$ o do. y return. end.
+  role =. 'role' gethash_json o
+  if. _1 -: role do. y return. end.
+  if. -. 'tool' -: > role do. y return. end.
+  c =. > 'content' gethash_json o
+  if. 2 ~: 3!:0 c do. y return. end.
+  'text mime b64' =. split_jpi_image c
+  if. 0 = # mime do. y return. end.
+  id =. > 'tool_call_id' gethash_json o
+  parts =. '[{"type":"text","text":' , (enc_json_fixed text) , '},{"type":"image_url","image_url":{"url":"data:' , mime , ';base64,' , b64 , '"}}]'
+  '{"role":"tool","tool_call_id":' , (enc_json_fixed id) , ',"content":' , parts , '}'
+)
+
 NB. Build the full request payload from conversation history
 NB. y = optional flag: 1 = omit tools (for fallback after 422 errors)
 build_payload =: monad define
@@ -378,17 +480,22 @@ build_payload =: monad define
   hist =. HISTORY
   if. no_tools do. hist =. strip_tool_msgs hist end.
   hist =. fix_assistant_content each hist
+  NB. Anthropic reads the marker itself. OpenAI needs the
+  NB. expanded content array, and only in the request.
+  sent =. expand_image_msg each hist
   all =. (< sys) , hist
-  msgs =. _1 }. ; (,&',') each all
+  msgs =. _1 }. ; (,&',') each ((< sys) , sent)
 
   NB. Anthropic requires max_tokens; all other providers omit it
   api_model =. model_for_api MODEL
   tp =. thinking_param ''
+  stream =. 'false'
+  if. 3 = 4!:0 <'tui_print' do. stream =. 'true' end.
   if. uses_openai_tools '' do.
     if. no_tools do.
-      payload =. '{"model":"' , api_model , '","stream":false' , tp , ',"messages":[' , msgs , ']}'
+      payload =. '{"model":"' , api_model , '","stream":' , stream , tp , ',"messages":[' , msgs , ']}'
     else.
-      payload =. '{"model":"' , api_model , '","stream":false' , tp , ',"tools":' , (get_tools '') , ',"messages":[' , msgs , ']}'
+      payload =. '{"model":"' , api_model , '","stream":' , stream , tp , ',"tools":' , (get_tools '') , ',"messages":[' , msgs , ']}'
     end.
   else.
     NB. Messages API: system is top-level, tools use input_schema,
@@ -401,7 +508,7 @@ build_payload =: monad define
     if. (32 = 3!:0 anth) *. 0 < # anth do.
       body =. }. ; (','&,)&.> anth
     end.
-    base =. '{"model":"' , api_model , '","max_tokens":4096,"system":' , (enc_json_fixed dlb system)
+    base =. '{"model":"' , api_model , '","stream":' , stream , ',"max_tokens":4096,"system":' , (enc_json_fixed dlb system)
     if. no_tools do.
       payload =. base , ',"messages":[' , body , ']}'
     else.
@@ -466,12 +573,26 @@ llm_call =: monad define
   if. is_tui do.
     NB. Redraw so user sees current output (e.g. "Asking LLM...")
     tui_redraw ''
-    NB. Start async request and animate spinner while waiting
+    NB. Start async request and animate spinner while waiting.
+    NB. stream:true bodies are parsed as they arrive. A provider
+    NB. that ignores the flag still returns one JSON object, and
+    NB. that object is used when no SSE data line was seen.
+    stream_on =. '"stream":true' +./@E. y
+    if. stream_on do. stream_reset '' end.
+    if. 3 = 4!:0 <'tui_stream_end' do. tui_stream_end '' end.
+    fed =. 0
     API_URL http_post_async y
     spin =. 0
     timeout =. 120  NB. seconds before giving up
     while. -. http_async_done '' do.
       tui_spinner_frame spin
+      if. stream_on *. fexist HTTP_RESPONSE_FILE do.
+        rawp =. fread HTTP_RESPONSE_FILE
+        if. (2 = 3!:0 rawp) *. fed < # rawp do.
+          stream_consume fed }. rawp
+          fed =. # rawp
+        end.
+      end.
       NB. steering capture: keys typed during the API wait.
       NB. 1 from the poll is bare Esc. Compare to 1: if. on an
       NB. empty result is true, and that would cancel every frame.
@@ -491,11 +612,34 @@ llm_call =: monad define
       end.
     end.
     tui_spinner_clear ''
+    if. 3 = 4!:0 <'tui_stream_end' do. tui_stream_end '' end.
     if. LLM_CANCEL do.
       http_async_cancel ''
       '' return.
     end.
-    raw =. http_async_result ''
+    if. stream_on do.
+      rawp =. ''
+      if. fexist HTTP_RESPONSE_FILE do. rawp =. fread HTTP_RESPONSE_FILE end.
+      if. (2 = 3!:0 rawp) *. fed < # rawp do.
+        stream_consume fed }. rawp
+      end.
+      if. 0 < # STREAM_BUF do.
+        stream_line STREAM_BUF
+        STREAM_BUF =: ''
+      end.
+      built =. stream_result_json ''
+      code =. ''
+      if. fexist HTTP_CODE_FILE do. code =. deb fread HTTP_CODE_FILE end.
+      code =. code -. CR , LF
+      if. (0 < # built) *. (0 < # code) *. '2' = {. code do.
+        raw =. built
+        ferase HTTP_HEADERFILE
+      else.
+        raw =. http_async_result ''
+      end.
+    else.
+      raw =. http_async_result ''
+    end.
   else.
     raw =. API_URL http_post y
   end.
@@ -787,7 +931,11 @@ process_tool_calls =: monad define
         echo 'Tool call: ' , name
       end.
       NB. box args with < to prevent ; from flattening the 2-row table
+      t0 =. 6!:1 ''
       result =. exec_tool name ; < args
+      dt =. (6!:1 '') - t0
+      if. 2 ~: 3!:0 result do. result =. ": result end.
+      result =. '[took ' , (0j2 ": dt) , 's]' , LF , result
       NB. Show first 500 chars of result, ellipsis if truncated
       preview =. 500 {. result
       if. 500 < #result do. preview =. preview , '...' end.
@@ -889,12 +1037,18 @@ llm_ask =: monad define
   NB. carried-over steering: typed during the previous ask's final
   NB. API call (no iteration followed) - inject before the new prompt
   if. 0 < # STEER_MSG do.
-    HISTORY =: HISTORY , < 'user' mk_msg STEER_MSG
+    hist_add 'user' mk_msg STEER_MSG
     echo 'STEER (carried over): ' , STEER_MSG
     STEER_MSG =: ''
   end.
+  if. 0 < # FOLLOW_MSG do.
+    hist_add 'user' mk_msg FOLLOW_MSG
+    echo 'FOLLOW (carried over): ' , FOLLOW_MSG
+    FOLLOW_MSG =: ''
+  end.
   NB. add user message to history
-  HISTORY =: HISTORY , < 'user' mk_msg y
+  STREAM_SHOWN =: 0
+  hist_add 'user' mk_msg y
   NB. loop: send history, handle tool calls, repeat until text reply
   loops =. 0
   retried_no_tools =. 0
@@ -905,7 +1059,7 @@ llm_ask =: monad define
     NB. NEXT iteration boundary - the model sees it with the tool
     NB. results that follow.
     if. (loops > 1) *. 0 < # STEER_MSG do.
-      HISTORY =: HISTORY , < 'user' mk_msg STEER_MSG
+      hist_add 'user' mk_msg STEER_MSG
       echo 'STEER: ' , STEER_MSG
       STEER_MSG =: ''
     end.
@@ -913,7 +1067,20 @@ llm_ask =: monad define
       payload =. build_payload retried_no_tools
       resp =. llm_call payload
       if. LLM_CANCEL do.
-        HISTORY =: mark {. HISTORY
+        hist_cut mark
+        if. 0 = 4!:0 <'TUI_INPUT' do.
+          draft =. ''
+          if. 0 < # STEER_MSG do. draft =. STEER_MSG end.
+          if. 0 < # FOLLOW_MSG do.
+            if. 0 < # draft do. draft =. draft , LF , FOLLOW_MSG else. draft =. FOLLOW_MSG end.
+          end.
+          STEER_MSG =: ''
+          FOLLOW_MSG =: ''
+          if. (0 < # draft) *. 0 = # TUI_INPUT do.
+            TUI_INPUT =: draft
+            TUI_CURSOR =: # draft
+          end.
+        end.
         '' return.
       end.
       if. 0 = #resp do.
@@ -933,16 +1100,23 @@ llm_ask =: monad define
         NB. add assistant message (with tool_calls) to history,
         NB. rebuilt from schema-safe fields (zai reasoning models
         NB. attach extra 'index' fields strict schemas reject)
-        HISTORY =: HISTORY , < enc_json_fixed safe_assistant_msg resp
+        hist_add enc_json_fixed safe_assistant_msg resp
         NB. execute tools and add results to history
         results =. process_tool_calls resp
-        HISTORY =: HISTORY , results
+        for_r. results do. hist_add > r end.
       else.
         NB. normal text reply — extract, strip instructed
         NB. <thinking> spans, add to history, return
         reply =. strip_thinking get_or_content resp
         if. 0 < #reply do.
-          HISTORY =: HISTORY , < 'assistant' mk_msg reply
+          hist_add 'assistant' mk_msg reply
+        end.
+        if. 0 < # FOLLOW_MSG do.
+          msg =. FOLLOW_MSG
+          FOLLOW_MSG =: ''
+          echo 'FOLLOW: ' , msg
+          hist_add 'user' mk_msg msg
+          continue.
         end.
         reply return.
       end.

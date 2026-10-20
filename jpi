@@ -112,6 +112,39 @@ case "$JBIN" in
         ;;
 esac
 
+# Flags before the mode. --tools takes the next argument.
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --continue)
+            export JPI_SESSION_MODE=continue
+            shift
+            ;;
+        --resume)
+            export JPI_SESSION_MODE=resume
+            shift
+            ;;
+        --no-mcp)
+            export JPI_NO_MCP=1
+            shift
+            ;;
+        --tools)
+            if [ $# -lt 2 ]; then
+                echo "jpi: --tools needs a comma-separated list" >&2
+                exit 2
+            fi
+            export JPI_TOOLS="$2"
+            shift 2
+            ;;
+        --tools=*)
+            export JPI_TOOLS="${1#--tools=}"
+            shift
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
 # Mode dispatch: default is the interactive TUI
 case "${1:-}" in
     -p|--print)
@@ -134,6 +167,13 @@ jpi serve              service mode: same JSONL protocol over a localhost
                        TCP socket (default port 8765, JPI_SERVE_PORT to
                        change). Clients attach/detach; the session lives on.
                        See pi_serve.ijs header.
+
+Flags come before the mode:
+  --continue           reopen the newest session for this directory
+  --resume             pick a session from the list (interactive)
+  --no-mcp             do not send MCP tools to the model
+  --tools LIST         comma list of tools. +name/-name edits the
+                       default set; a trailing * is a prefix.
 USAGE
         ;;
     *)
