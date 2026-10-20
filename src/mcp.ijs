@@ -36,6 +36,10 @@ NB.   4: stdout_read_fd (stdio) or session_id (http)
 NB.   5: pid (stdio) or auth_header (http)
 NB.   6: tools (boxed list, unused — tools stored in MCP_TOOLS)
 MCP_SERVERS =: 0 7 $ <''
+NB. Names skipped while loading a second mcp.json (project wins).
+MCP_SKIP =: 0 $ <''
+NB. Set when an enabled server fails to initialize.
+MCP_LOAD_FAIL =: 0
 
 NB. Global registry of MCP tools (for get_tools / exec_tool)
 NB. Each row: tool_name ; description ; input_schema_json ; server_id

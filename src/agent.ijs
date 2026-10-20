@@ -19,9 +19,20 @@ load 'plugins.ijs'
 load 'extensions.ijs'
 
 NB. Discover Agent Plugins and Skills after all modules are loaded.
-NB. Skills are scanned once here, including plugin skills.
-discover_all_plugins ''
-discover_all_skills ''
+NB. When the launcher has chdir'd into JPI_SRC only to load
+NB. scripts, this waits until finish_project_scan. Otherwise the
+NB. trust prompt names the harness directory instead of the
+NB. directory the user opened. The if. stays inside a verb:
+NB. a top-level control word is an invalid inflection here.
+3 : 0 ''
+  if. defer_project_scan '' do.
+    PROJECT_SCAN_PENDING =: 1
+  else.
+    discover_all_plugins ''
+    discover_all_skills ''
+  end.
+  i. 0 0
+)
 
 NB. ----------------------------------------------------------------
 NB. Model listing — fetch_models helper + list_models
@@ -99,17 +110,7 @@ fetch_models =: monad define
             NB. per-model pricing when the listing has it (hyai;
             NB. mistral's listing carries NO pricing - published on
             NB. their website only). hyai prices are EUR per million.
-            pr =. 'pricing' gethash_json m
-            price =. ''
-            if. pr -.@-: _1 do.
-              pr =. > pr
-              pi =. json_num 'input_per_million' gethash_json pr
-              po =. json_num 'output_per_million' gethash_json pr
-              if. 0 < pi do.
-                price =. '  ' , (": pi) , 'EUR/M in'
-                if. 0 < po do. price =. price , ' ' , (": po) , 'EUR/M out' end.
-              end.
-            end.
+            price =. model_price_label 'pricing' gethash_json m
             ml =. ml , < (disp_prefix , id , '  -  ' , suffix , ctx , price)
             il =. il , < (id_prefix , id)
           end.
@@ -235,7 +236,9 @@ list_models =: monad define
       new_model =. > sel_idx { ids_list
       MODEL =: new_model
       save_model ''
-      echo 'Model dynamically routed to: ' , MODEL
+      update_config_state ''
+      echo 'Model set to: ' , MODEL
+      try. report_model_window '' catch. end.
     else.
       echo 'Model selection aborted.'
     end.
@@ -245,7 +248,9 @@ list_models =: monad define
       new_model =. > sel_idx { ids_list
       MODEL =: new_model
       save_model ''
-      echo 'Model dynamically routed to: ' , MODEL
+      update_config_state ''
+      echo 'Model set to: ' , MODEL
+      try. report_model_window '' catch. end.
     else.
       echo 'Model selection aborted.'
     end.
@@ -313,6 +318,12 @@ write_verb =: monad define
 ask_verb =: monad define
   q =. y
   if. 3 = 4!:0 <'expand_mentions' do. q =. expand_mentions y end.
+  if. 0 = 4!:0 <'TUI_ATTACH' do.
+    if. 0 < # TUI_ATTACH do.
+      q =. q , LF , TUI_ATTACH
+      TUI_ATTACH =: ''
+    end.
+  end.
   echo 'Asking LLM...'
   log 'ask: ', q
   reply =. llm_ask q
@@ -381,6 +392,8 @@ help_lines =: monad define
   h =. h , <'  skill:name       - run that skill as the next prompt'
   h =. h , <'  login [provider] - save an API key (input is hidden)'
   h =. h , <'  logout [provider]- remove a saved API key'
+  h =. h , <'  image            - attach a PNG from the clipboard'
+  h =. h , <'  mcp [reload]     - list MCP servers; reload reads mcp.json'
   h =. h , <'  reload           - reload skills, prompts, and the theme'
   h =. h , <'  help [word]      - this list; a word filters it'
   h =. h , <'  exit             - quit (TUI: also Ctrl+C)'
@@ -729,12 +742,65 @@ NB.     echo list_plugins ''
 NB. )
 plugins_verb =: echo @ list_plugins
 
+NB. /image attaches a clipboard PNG. The TUI shows a short note
+NB. and ask_verb sends the image marker with the next prompt.
+image_verb =: monad define
+  if. 3 ~: 4!:0 <'clipboard_image' do.
+    echo 'Clipboard images are not available.'
+    return.
+  end.
+  path =. clipboard_image ''
+  if. 0 = # path do.
+    echo 'No image on the clipboard.'
+    return.
+  end.
+  block =. ''
+  if. 3 = 4!:0 <'mention_block' do.
+    block =. mention_block path
+  end.
+  if. 0 = 4!:0 <'TUI_ATTACH' do.
+    if. 0 < # TUI_ATTACH do.
+      TUI_ATTACH =: TUI_ATTACH , LF , block
+    else.
+      TUI_ATTACH =: block
+    end.
+    note =. '[image: ' , path , ']'
+    TUI_INPUT =: TUI_INPUT , note
+    TUI_CURSOR =: # TUI_INPUT
+  else.
+    echo 'Image: ' , path
+  end.
+  if. 3 = 4!:0 <'display_image' do.
+    display_image path
+  end.
+  ''
+)
+
+NB. /mcp lists connected servers. /mcp reload reads the user and
+NB. project mcp.json files and connects servers that are not up.
+mcp_verb =: monad define
+  if. 'reload' -: deb y do.
+    if. 3 = 4!:0 <'load_user_and_project_mcp' do.
+      load_user_and_project_mcp ''
+      echo 'MCP reloaded.'
+    else.
+      echo 'MCP config is not loaded.'
+    end.
+    return.
+  end.
+  if. 3 ~: 4!:0 <'mcp_status_lines' do.
+    echo 'No MCP servers.'
+    return.
+  end.
+  echo mcp_status_lines ''
+)
+
 NB. Boxed action names
-ACTIONS =: 'read';'run';'edit';'write';'ask';'help';'clear';'export';'import';'session';'fork';'model';'compact';'context';'status';'transcript';'prompt';'usage';'git';'grep';'find';'theme';'skills';'plugins';'think';'tree';'clone';'name';'login';'logout';'reload'
+ACTIONS =: 'read';'run';'edit';'write';'ask';'help';'clear';'export';'import';'session';'fork';'model';'compact';'context';'status';'transcript';'prompt';'usage';'git';'grep';'find';'theme';'skills';'plugins';'think';'tree';'clone';'name';'login';'logout';'reload';'image';'mcp'
 
 NB. Gerund list must stay in sync with ACTIONS.
 NB. Assert catches mismatches at load time.
-ACTION_GERUNDS =: read_verb`run_verb`edit_verb`write_verb`ask_verb`help_verb`clear_verb`export_verb`import_verb`session_verb`fork_verb`model_verb`compact_verb`context_verb`status_verb`transcript_verb`prompt_verb`usage_verb`git_verb`grep_verb`find_verb`theme_verb`skills_verb`plugins_verb`think_verb`tree_verb`clone_verb`name_verb`login_verb`logout_verb`reload_verb
+ACTION_GERUNDS =: read_verb`run_verb`edit_verb`write_verb`ask_verb`help_verb`clear_verb`export_verb`import_verb`session_verb`fork_verb`model_verb`compact_verb`context_verb`status_verb`transcript_verb`prompt_verb`usage_verb`git_verb`grep_verb`find_verb`theme_verb`skills_verb`plugins_verb`think_verb`tree_verb`clone_verb`name_verb`login_verb`logout_verb`reload_verb`image_verb`mcp_verb
 assert (#ACTIONS) = #ACTION_GERUNDS
 
 NB. ----------------------------------------------------------------
@@ -773,6 +839,11 @@ agent =: monad define
 
 load 'editor.ijs'
 load 'prompts.ijs'
-discover_prompts ''
+3 : 0 ''
+  if. -. defer_project_scan '' do.
+    discover_prompts ''
+  end.
+  i. 0 0
+)
 
 echo 'J-PI agent loaded.'

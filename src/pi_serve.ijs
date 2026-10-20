@@ -48,6 +48,7 @@ echo =: ''"_
   i. 0 0
 )
 old =. 1!:43 ''
+LAUNCH_CWD =: old
 1!:44 srcdir
 load 'agent.ijs'
 load 'lineio.ijs'
@@ -55,6 +56,7 @@ load 'pi_proto.ijs'
 require 'socket'
 coinsert <'jsocket'
 1!:44 old
+finish_project_scan ''
 
 NB. init_session ran during the loads while chdir'd into srcdir
 NB. (folder_session saw 'src'); re-init now that cwd is the

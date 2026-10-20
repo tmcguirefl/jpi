@@ -245,31 +245,26 @@ update_config_state =: monad define
   catch. end.
 
   NB. API key management policy:
-  NB.   Keys are read from ~/.jpi_providers only (chmod 600 on load).
-  NB.   Keys are NEVER read from environment variables. This is deliberate:
-  NB.   env vars are visible to all child processes — any bash command or
-  NB.   MCP tool the LLM runs could exfiltrate keys via `env` or
-  NB.   /proc/self/environ. The file-based approach limits key access to
-  NB.   jpi's own process. Keys are passed to curl via -K config file
-  NB.   (see http.ijs), not on the command line, so they don't appear in
-  NB.   ps aux either. The header config file is erased after each request.
+  NB.   A providers-file value longer than one character wins.
+  NB.   Otherwise the same-named environment variable is used when
+  NB.   it is longer than one character. The file currently holds
+  NB.   the one-character placeholder "1", and OpenRouter answers
+  NB.   Authorization: Bearer 1 with "Missing Authentication header".
+  NB.   The key still goes to curl through -K (http.ijs), not on
+  NB.   the command line, and that header file is erased after
+  NB.   the request.
   NB.
   NB.   URL overrides (LOCAL_API_URL, OLLAMA_API_URL) DO read env vars —
   NB.   URLs are not secrets, so this is safe and convenient for self-hosted
   NB.   LLMs.
   try.
-    name =. env , '_VAL'
-    if. 0 = 4!:0 < name do.
-      val =. ". name
-      if. (2 = 3!:0 val) *. 0 < #val do.
-        API_KEY =: val
-        NB. NO early return here: a return skipped the API_KEY
-        NB. normalization below AND the persistent context-budget
-        NB. preference at the end of this verb - the pref never
-        NB. applied at load because the key was always found.
-        NB. Falling through is harmless: normalization just
-        NB. validates, and the pref must run.
-      end.
+    val =. resolve_api_key env
+    if. 2 = 3!:0 val do.
+      API_KEY =: val
+      NB. Assign the empty result too. Leaving the previous key
+      NB. in place sent the one-character placeholder after the
+      NB. environment was unset. No early return: a return skipped
+      NB. the normalization below and the context-budget preference.
     end.
   catch. end.
 
@@ -303,25 +298,49 @@ apply_context_pref =: monad define
   ''
 )
 
-NB. Helper to check if an API key exists in ~/.jpi_providers
-has_api_key =: monad define
-  k =. y , '_VAL'
-  if. 0 = 4!:0 < k do.
-    v =. ". k
-    (2 = 3!:0 v) *. 0 < # v
-  else.
-    0
-  end.
+NB. y = variable name, such as OPENROUTER_API_KEY.
+NB. Empty, unset, and a one-character value return ''.
+env_api_key =: monad define
+  t =. ''
+  try. t =. > 2!:5 y catch. t =. '' end.
+  if. (2 = 3!:0 t) *. 1 < # t do. t else. '' end.
 )
 
-NB. Helper to get an API key from ~/.jpi_providers
-get_api_key =: monad define
+NB. y = variable name. The providers-file noun (name_VAL)
+NB. wins when it is longer than one character. Otherwise the
+NB. environment value is used.
+resolve_api_key =: monad define
   k =. y , '_VAL'
-  if. 0 = 4!:0 < k do. ": ". k return. end.
-  ''
+  val =. ''
+  if. 0 = 4!:0 < k do.
+    try. val =. ". k catch. val =. '' end.
+  end.
+  if. (2 = 3!:0 val) *. 1 < # val do. val return. end.
+  env_api_key y
+)
+
+NB. Helper to check if an API key is available.
+has_api_key =: monad define
+  0 < # resolve_api_key y
+)
+
+NB. Helper to get an API key. '' when none is available.
+get_api_key =: monad define
+  resolve_api_key y
 )
 CONFIG_MODEL_FILE =: (2!:5 'HOME') , '/.jpi_model'
 CONFIG_PROVIDERS_FILE =: (2!:5 'HOME') , '/.jpi_providers'
+
+NB. fread does not add a trailing LF. (LF -. last) is the
+NB. character LF when the file has none, and that character as
+NB. the left argument of # is a domain error. load_model's try.
+NB. then kept the previous key. ~: appends LF only when needed.
+ensure_lf =: monad define
+  t =. , y
+  if. 0 = # t do. '' return. end.
+  if. 2 ~: 3!:0 t do. '' return. end.
+  if. LF ~: {: t do. t , LF else. t end.
+)
 
 NB. Load saved model from disk if present
 load_model =: monad define
@@ -342,15 +361,18 @@ load_model =: monad define
       2!:0 'chmod 600 ' , CONFIG_PROVIDERS_FILE
       prov =. fread CONFIG_PROVIDERS_FILE
       if. 0 < #prov do.
-        lines =. <;._2 prov, (LF -. {: prov) # LF
+        lines =. <;._2 ensure_lf prov
         for_l. lines do.
           line =. > l
-          if. 0 = #line do. continue. end.
+          if. 0 = # line do. continue. end.
+          line =. line #~ CR ~: line
+          line =. deb line
+          if. 0 = # line do. continue. end.
           if. '#' = {. line do. continue. end.
           idx =. line i. '='
-          if. idx < #line do.
-            k =. > idx {. line
-            v =. > (idx+1) }. line
+          if. idx < # line do.
+            k =. deb idx {. line
+            v =. deb (idx + 1) }. line
             name =. k , '_VAL'
             (name) =: v
           end.
@@ -425,7 +447,7 @@ providers_lines =: monad define
   if. -. fexist CONFIG_PROVIDERS_FILE do. 0 $ <'' return. end.
   raw =. fread CONFIG_PROVIDERS_FILE
   if. (2 ~: 3!:0 raw) +. 0 = # raw do. 0 $ <'' return. end.
-  <;._2 raw , (LF -. {: raw) # LF
+  <;._2 ensure_lf raw
 )
 
 NB. Write lines back and keep the file private. The value is

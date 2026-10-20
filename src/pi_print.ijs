@@ -29,11 +29,13 @@ echo =: ''"_                  NB. quiet until the reply
   i. 0 0
 )
 old =. 1!:43 ''
+LAUNCH_CWD =: old
 1!:44 srcdir
 NB. chdir: agent.ijs and its siblings bare-load, which resolves
 NB. against the cwd (same pattern as tui.ijs)
 load 'agent.ijs'
 1!:44 old
+finish_project_scan ''
 NB. init_session ran during the loads while chdir'd into srcdir
 NB. (folder_session saw 'src'); re-init now that cwd is the
 NB. user's folder, so the per-folder session is the right one.

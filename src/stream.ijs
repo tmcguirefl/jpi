@@ -206,7 +206,11 @@ stream_consume =: monad define
 NB. OpenAI chat.completion JSON, or '' if no SSE data arrived.
 stream_result_json =: monad define
   if. 0 = STREAM_SAW do. '' return. end.
-  if. 0 ~: 4!:0 <'enc_json_fixed' do. load 'enc_json_fixed.ijs' end.
+  NB. 4!:0 is 3 for this verb. 0 ~: 4!:0 was true for it, so
+  NB. every finished stream reloaded enc_json_fixed.ijs from
+  NB. the working directory. J's load then ran 0!:0 on a
+  NB. missing file: file name error in fn.
+  if. _1 = 4!:0 <'enc_json_fixed' do. load 'enc_json_fixed.ijs' end.
   finish =. STREAM_FINISH
   if. 0 = # finish do.
     if. 0 < # STREAM_TC do. finish =. 'tool_calls' else. finish =. 'stop' end.

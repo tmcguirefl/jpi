@@ -23,24 +23,29 @@ NB. agent behavior) and raw .ijs extensions (EXECUTED at startup).
 NB. Auto-loading those from an untrusted directory runs someone
 NB. else's code on your machine with no prompt.
 NB.
-NB. Gate semantics: the first time jpi meets a directory that
-NB. contains a plugins/ dir which is not jpi's own, it asks once at
-NB. the controlling terminal: "load its local plugins? [y/N]".
-NB. 'y' is recorded in ~/.jpi/trusted (one absolute path per line)
-NB. and the code loads; any other answer skips it this launch (and
-NB. asks again next launch). Headless runs (no controlling
-NB. terminal) never prompt: project-local code is skipped with a
-NB. log line. jpi's own shipped plugins dirs are never gated.
+NB. Gate semantics: the first time jpi meets a directory whose
+NB. project walk (cwd up to, but not including, $HOME or .git)
+NB. contains plugins, skills, prompts, or AGENTS.md, it asks once
+NB. at the controlling terminal. 'y' is recorded in ~/.jpi/trusted
+NB. (one absolute path per line). Any other answer is recorded in
+NB. ~/.jpi/declined and is not asked again. $HOME itself does not
+NB. count: ~/.jpi is user configuration and is loaded without this
+NB. gate. Headless runs never prompt. jpi's own shipped plugins
+NB. dirs are never gated.
 
 require 'files'
 
 TRUSTED_FILE =: ''
+DECLINED_FILE =: ''
 BUILTIN_PLUGIN_DIRS =: 0 $ <''
 3 : 0 ''
   h =. > 2!:5 'HOME'
   if. 2 = 3!:0 h do.
     TRUSTED_FILE =: h , '/.jpi/trusted'
-    if. -. fexist h , '/.jpi' do. dircreate h , '/.jpi' end.
+    DECLINED_FILE =: h , '/.jpi/declined'
+    if. -. fexist h , '/.jpi' do.
+      try. 1!:5 < h , '/.jpi' catch. end.
+    end.
   end.
   js =. > 2!:5 'JPI_SRC'
   if. 2 = 3!:0 js do.
@@ -76,13 +81,91 @@ NB. Paths refused this process. A "no" is not written to disk, and
 NB. without this list every later loader would ask again.
 TRUST_NO =: 0 $ <''
 
-NB. already answered 'y' before?
-is_trusted =: monad define
-  if. (0 = # TRUSTED_FILE) +. -. fexist TRUSTED_FILE do. 0 return. end.
-  txt =. fread TRUSTED_FILE
+NB. fread lines are flagged literals. e. and -: compare storage,
+NB. so a path saved last launch would miss and the prompt would
+NB. repeat. Equal length and atom-wise = compares the characters.
+trust_line =: dyad define
+  q =. , x
+  t =. , y
+  if. (0 = # q) +. (# q) ~: # t do. 0 return. end.
+  hit =. 0
+  try. hit =. *./ q = t catch. hit =. 0 end.
+  hit
+)
+
+NB. x = absolute path, y = file of one path per line.
+trust_file_has =: dyad define
+  if. (0 = # y) +. -. fexist y do. 0 return. end.
+  txt =. fread y
   if. (2 ~: 3!:0 txt) +. 0 = # txt do. 0 return. end.
   if. LF ~: {: txt do. txt =. txt , LF end.
-  (< y) e. deb&.> <;._2 txt
+  hit =. 0
+  for_l. deb&.> <;._2 txt do.
+    if. x trust_line > l do. hit =. 1 end.
+  end.
+  hit
+)
+
+NB. already answered 'y' before?
+is_trusted =: monad define
+  y trust_file_has TRUSTED_FILE
+)
+
+NB. already answered anything but 'y'?
+is_declined =: monad define
+  y trust_file_has DECLINED_FILE
+)
+
+NB. $HOME is the user config directory, not a project root.
+NB. jpi creates ~/.jpi, so counting it made every folder look new.
+trust_is_home =: monad define
+  h =. ''
+  try. h =. > 2!:5 'HOME' catch. h =. '' end.
+  if. 2 ~: 3!:0 h do. 0 return. end.
+  h trust_line y
+)
+
+NB. 1 when cwd, or a parent below $HOME and not past .git, has
+NB. project files. Does not prompt.
+project_trust_needed =: monad define
+  d =. 1!:43 ''
+  need =. 0
+  for_i. i. 8 do.
+    if. trust_is_home d do. break. end.
+    if. (fexist d , '/plugins') +. (fexist d , '/skills') +. (fexist d , '/.agents') +. (fexist d , '/prompts') +. (fexist d , '/.jpi') +. (fexist d , '/AGENTS.md') +. (fexist d , '/JPILOT.md') +. (fexist d , '/CLAUDE.md') do.
+      need =. 1
+    end.
+    if. fexist d , '/.git' do. break. end.
+    parent =. (d i: '/') {. d
+    if. (0 = # parent) +. parent -: d do. break. end.
+    d =. parent
+  end.
+  need
+)
+
+NB. 1 while scripts are loading from JPI_SRC and the user
+NB. launched somewhere else. That directory is the program, not
+NB. the project. finish_project_scan runs after the cwd returns.
+defer_project_scan =: monad define
+  if. 0 ~: 4!:0 <'LAUNCH_CWD' do. 0 return. end.
+  js =. ''
+  try. js =. > 2!:5 'JPI_SRC' catch. js =. '' end.
+  if. (2 ~: 3!:0 js) +. 0 = # js do. 0 return. end.
+  if. -. (1!:43 '') -: js do. 0 return. end.
+  if. LAUNCH_CWD -: js do. 0 return. end.
+  1
+)
+
+NB. Plugins, skills, and prompts that were skipped while cwd
+NB. was JPI_SRC. Safe to call when nothing was deferred.
+finish_project_scan =: monad define
+  if. 0 ~: 4!:0 <'PROJECT_SCAN_PENDING' do. '' return. end.
+  if. -. PROJECT_SCAN_PENDING do. '' return. end.
+  if. 3 = 4!:0 <'discover_all_plugins' do. discover_all_plugins '' end.
+  if. 3 = 4!:0 <'discover_all_skills' do. discover_all_skills '' end.
+  if. 3 = 4!:0 <'discover_prompts' do. discover_prompts '' end.
+  PROJECT_SCAN_PENDING =: 0
+  ''
 )
 
 NB. the gate: 1 = load allowed, 0 = skip. Prompts once at the
@@ -93,6 +176,7 @@ NB. include echo/escape bytes, and a loose match on those could
 NB. auto-trust. Strict equality against the file's content.
 trust_gate =: monad define
   if. is_trusted y do. 1 return. end.
+  if. is_declined y do. 0 return. end.
   if. (< y) e. TRUST_NO do. 0 return. end.
   if. 0 = # TRUSTED_FILE do. 0 return. end.
   ansfile =. '/tmp/jpi_trust_ans_' , 6!:0 'hhmmss'
@@ -114,7 +198,8 @@ trust_gate =: monad define
     1
   else.
     TRUST_NO =: TRUST_NO , < y
-    echo 'TRUST: skipping project files in ' , y , ' (untrusted; answer y once interactively to trust it)'
+    if. 0 < # DECLINED_FILE do. (y , LF) fappend DECLINED_FILE end.
+    echo 'TRUST: skipping project files in ' , y , ' (saved in ' , DECLINED_FILE , ')'
     0
   end.
 )
@@ -123,21 +208,13 @@ NB. 1 when project skills, prompts, context files, and plugins may
 NB. load. User-global files are not gated. A project with none of
 NB. these does not prompt.
 project_trusted =: monad define
+  NB. Do not ask about the harness tree during script load.
+  if. defer_project_scan '' do. 0 return. end.
   cwd =. 1!:43 ''
   if. is_trusted cwd do. 1 return. end.
+  if. is_declined cwd do. 0 return. end.
   if. (< cwd) e. TRUST_NO do. 0 return. end.
-  need =. 0
-  d =. cwd
-  for_i. i. 8 do.
-    if. (fexist d , '/plugins') +. (fexist d , '/skills') +. (fexist d , '/.agents') +. (fexist d , '/prompts') +. (fexist d , '/.jpi') +. (fexist d , '/AGENTS.md') +. (fexist d , '/JPILOT.md') +. (fexist d , '/CLAUDE.md') do.
-      need =. 1
-    end.
-    if. fexist d , '/.git' do. break. end.
-    parent =. (d i: '/') {. d
-    if. (0 = # parent) +. parent -: d do. break. end.
-    d =. parent
-  end.
-  if. 0 = need do. 1 return. end.
+  if. -. project_trust_needed '' do. 1 return. end.
   trust_gate cwd
 )
 
@@ -154,6 +231,26 @@ json_num =: monad define
     (". :: _1:) , v return.
   end.
   if. 0 < # , v do. v else. _1 end.
+)
+
+NB. y = the pricing cell from a model listing. hyai sends an
+NB. object with input_per_million. xAI image models send an
+NB. array. gethash_json asserts a rank-2 table, so an array
+NB. must not be passed to it. '' when there is no hyai price.
+model_price_label =: monad define
+  if. _1 -: y do. '' return. end.
+  pr =. y
+  if. 0 = $$ pr do. pr =. > pr end.
+  if. (32 ~: 3!:0 pr) +. 2 ~: $$ pr do. '' return. end.
+  pi =. json_num 'input_per_million' gethash_json pr
+  po =. json_num 'output_per_million' gethash_json pr
+  if. 0 < pi do.
+    price =. '  ' , (": pi) , 'EUR/M in'
+    if. 0 < po do. price =. price , ' ' , (": po) , 'EUR/M out' end.
+    price
+  else.
+    ''
+  end.
 )
 
 NB. human_size: format a byte count as a human-readable string

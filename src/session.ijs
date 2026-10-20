@@ -41,6 +41,18 @@ SESSION_LABEL =: ''
 SESSION_SEQ =: 0
 HIST_IDS =: 0 $ <''
 JPI_RESUME_PICK =: 0
+NB. 0 means --no-session: save_session and load_session do nothing.
+SESSION_PERSIST =: 1
+NB. Full path when the open file is not SESSION_DIR/name.jsonl.
+SESSION_FILE =: ''
+NB. First init_session runs while cwd is still src/. It must not
+NB. exit the process. The call after the launch directory is
+NB. restored is the one that reports a bad flag.
+SESSION_INIT_PASS =: 0
+NB. Startup --name is applied once, after the selected file is loaded.
+SESSION_LABEL_APPLIED =: 0
+SESSION_LABEL_HOLD =: 0
+SESSION_CLI_OK =: 1
 
 env_text =: monad define
   t =. ''
@@ -212,15 +224,25 @@ NB.     SESSION_DIR , '/' , y , '.jsonl'
 NB. )
 session_path =: (SESSION_DIR"_) , '/' , ] , ('.jsonl'"_)
 
+NB. Path used for the open session. SESSION_FILE wins when the
+NB. file lives outside SESSION_DIR.
+session_file =: monad define
+  if. 0 < # SESSION_FILE do. SESSION_FILE return. end.
+  session_path CURRENT_SESSION
+)
+
 NB. Save the tree. The meta line records the display name, the
 NB. working directory, and the active head. Message bodies are
 NB. JSON strings so a line stays one object.
 save_session =: monad define
+  if. 0 = SESSION_PERSIST do. return. end.
   ensure_session_dir ''
-  if. 0 ~: 4!:0 <'enc_json_fixed' do.
+  NB. Load only when the verb is missing. It is class 3, and
+  NB. a relative load from the project directory is a file name error.
+  if. _1 = 4!:0 <'enc_json_fixed' do.
     load 'enc_json_fixed.ijs'
   end.
-  path =. session_path CURRENT_SESSION
+  path =. session_file ''
   lines =. 0 $ <''
   meta =. '{"type":"meta","name":' , (enc_json_fixed SESSION_LABEL) , ',"cwd":' , (enc_json_fixed 1!:43 '') , ',"head":' , (enc_json_fixed SESSION_HEAD) , '}'
   lines =. lines , < meta
@@ -252,8 +274,9 @@ fix_tool_call_content =: monad define
 NB. Load the tree. A file of bare message JSON (no "type") is
 NB. the pre-tree format: those lines become a single chain.
 load_session =: monad define
+  if. 0 = SESSION_PERSIST do. return. end.
   session_reset_tree ''
-  path =. session_path CURRENT_SESSION
+  path =. session_file ''
   if. -. fexist path do.
     echo 'New session [' , CURRENT_SESSION , '] (no saved history found).'
     return.
@@ -312,6 +335,18 @@ load_session =: monad define
   end.
   SESSION_HEAD =: head
   hist_project ''
+  if. SESSION_CLI_OK do.
+    if. 0 = SESSION_LABEL_HOLD do.
+      if. 0 = SESSION_LABEL_APPLIED do.
+        lab =. env_text 'JPI_SESSION_LABEL'
+        SESSION_LABEL_APPLIED =: 1
+        if. 0 < # lab do.
+          SESSION_LABEL =: lab
+          if. SESSION_PERSIST do. save_session '' end.
+        end.
+      end.
+    end.
+  end.
   label =. SESSION_LABEL
   if. 0 = # label do. label =. CURRENT_SESSION end.
   echo 'Session [' , label , '] loaded (' , (": # HISTORY) , ' messages).'
@@ -319,7 +354,7 @@ load_session =: monad define
 
 NB. Delete saved session file
 delete_session =: monad define
-  path =. session_path CURRENT_SESSION
+  path =. session_file ''
   if. -. fexist path do.
     echo 'No saved session to delete for [' , CURRENT_SESSION , ']'
     return.
@@ -361,6 +396,10 @@ list_sessions =: monad define
 
 NB. Switch into a session. y is a file name, not a path.
 switch_session =: monad define
+  if. 0 = SESSION_PERSIST do.
+    echo 'This run is not saving a session (--no-session).'
+    return.
+  end.
   if. -. session_name_ok y do.
     echo 'Session name must be letters, digits, dot, underscore, or hyphen.'
     return.
@@ -368,6 +407,7 @@ switch_session =: monad define
   if. 0 < # SESSION_ROWS do.
     save_session ''
   end.
+  SESSION_FILE =: ''
   CURRENT_SESSION =: y
   CURRENT_SESSION fwrite ACTIVE_SESSION_FILE
   load_session ''
@@ -386,7 +426,7 @@ session_write_chain =: dyad define
   name =. x
   head =. y
   ids =. session_chain head
-  if. 0 ~: 4!:0 <'enc_json_fixed' do. load 'enc_json_fixed.ijs' end.
+  if. _1 = 4!:0 <'enc_json_fixed' do. load 'enc_json_fixed.ijs' end.
   lines =. 0 $ <''
   meta =. '{"type":"meta","name":"","cwd":' , (enc_json_fixed 1!:43 '') , ',"head":' , (enc_json_fixed head) , '}'
   lines =. lines , < meta
@@ -409,6 +449,10 @@ NB. y = new name, or '' for a timestamped name. Copies the active
 NB. branch through the current head. x, when a boxed id, stops
 NB. the copy at that entry (fork from an earlier message).
 fork_session =: monad define
+  if. 0 = SESSION_PERSIST do.
+    echo 'This run is not saving a session (--no-session).'
+    return.
+  end.
   name =. deb y
   if. 0 = # name do.
     name =. CURRENT_SESSION , '-fork-' , (6!:0 'YYYY-MM-DD-hhmmss') -. '-'
@@ -429,6 +473,10 @@ fork_session =: monad define
 
 NB. y = id to copy through. '' copies the current head.
 fork_at =: dyad define
+  if. 0 = SESSION_PERSIST do.
+    echo 'This run is not saving a session (--no-session).'
+    return.
+  end.
   name =. x
   id =. y
   if. 0 = # id do. id =. SESSION_HEAD end.
@@ -549,7 +597,7 @@ session_continue_name =: monad define
     if. 2 ~: #$ o do. continue. end.
     if. -. 'meta' -: 'type' sj_text o do. continue. end.
     if. cwd -: 'cwd' sj_text o do.
-      name =. (path i: '/') }. path
+      name =. (>: path i: '/') }. path
       if. '.jsonl' -: _6 {. name do. name =. _6 }. name end.
       name return.
     end.
@@ -557,10 +605,228 @@ session_continue_name =: monad define
   ''
 )
 
+NB. File stems in SESSION_DIR. Empty when the directory has none.
+session_names =: monad define
+  ensure_session_dir ''
+  raw =. ''
+  try. raw =. {."1 [ 1!:0 < SESSION_DIR , '/*.jsonl' catch. raw =. '' end.
+  names =. 0 $ <''
+  if. 0 = # raw do. names return. end.
+  for_r. raw do.
+    n =. > r
+    if. '.jsonl' -: _6 {. n do.
+      names =. names , < _6 }. n
+    end.
+  end.
+  names
+)
+
+NB. cwd recorded on the first meta line, or '' when the file has none.
+session_file_cwd =: monad define
+  raw =. ''
+  try. raw =. fread y catch. '' return. end.
+  if. (2 ~: 3!:0 raw) +. 0 = # raw do. '' return. end.
+  if. LF e. raw do. line =. (raw i. LF) {. raw else. line =. raw end.
+  require 'convert/json'
+  o =. ''
+  try. o =. dec_json line catch. '' return. end.
+  if. 2 ~: #$ o do. '' return. end.
+  'cwd' sj_text o
+)
+
+NB. y = --session or --fork argument.
+NB. Returns path ; name, or '' when the argument does not resolve.
+session_resolve =: monad define
+  arg =. deb y
+  if. 0 = # arg do.
+    echo 'Session argument is empty.'
+    '' return.
+  end.
+  ispath =. 0
+  if. '/' e. arg do. ispath =. 1 end.
+  if. '~' = {. arg do. ispath =. 1 end.
+  if. '.jsonl' -: _6 {. arg do. ispath =. 1 end.
+  if. ispath do.
+    path =. arg
+    if. '~' = {. path do.
+      home =. > 2!:5 'HOME'
+      if. 1 = # path do.
+        path =. home
+      elseif. '~/' -: 2 {. path do.
+        path =. home , }. path
+      end.
+    end.
+    if. -. fexist path do.
+      echo 'No session file: ' , path
+      '' return.
+    end.
+    name =. (>: path i: '/') }. path
+    if. '.jsonl' -: _6 {. name do. name =. _6 }. name end.
+    if. 0 = # name do. name =. 'external' end.
+    path ; name return.
+  end.
+  if. -. session_name_ok arg do.
+    echo 'Session name must be letters, digits, dot, underscore, or hyphen.'
+    '' return.
+  end.
+  names =. session_names ''
+  exact =. 0 $ <''
+  pref =. 0 $ <''
+  for_n. names do.
+    nm =. > n
+    if. nm -: arg do.
+      exact =. exact , < nm
+    elseif. (# arg) <: # nm do.
+      if. arg -: (# arg) {. nm do.
+        pref =. pref , < nm
+      end.
+    end.
+  end.
+  if. 1 = # exact do.
+    nm =. > {. exact
+    (session_path nm) ; nm return.
+  end.
+  if. 0 = # pref do.
+    echo 'No session matches ' , arg
+    '' return.
+  end.
+  if. 1 < # pref do.
+    echo 'Several sessions match ' , arg , ':'
+    for_h. pref do. echo '  ' , > h end.
+    '' return.
+  end.
+  nm =. > {. pref
+  (session_path nm) ; nm
+)
+
+NB. Open path ; name. A file inside SESSION_DIR uses the stem.
+session_use =: monad define
+  'path name' =. y
+  if. (session_name_ok name) *. path -: session_path name do.
+    SESSION_FILE =: ''
+    CURRENT_SESSION =: name
+  else.
+    SESSION_FILE =: path
+    if. session_name_ok name do.
+      CURRENT_SESSION =: name
+    else.
+      CURRENT_SESSION =: 'external'
+    end.
+  end.
+  ''
+)
+
+NB. y = pass number. A later pass exits 2. The first pass falls
+NB. back to the folder session so a relative path can be tried
+NB. again after the launch directory is restored.
+session_cli_fail =: monad define
+  SESSION_LABEL_HOLD =: 0
+  if. 0 < y do. 2!:55 (2) end.
+  SESSION_FILE =: ''
+  CURRENT_SESSION =: folder_session ''
+  0
+)
+
+NB. y = label. Sets the display name. Saves only when this run
+NB. persists. Does not echo; startup is quiet.
+session_apply_label =: monad define
+  if. 0 = # y do. '' return. end.
+  SESSION_LABEL =: y
+  if. SESSION_PERSIST do. save_session '' end.
+  ''
+)
+
+NB. y = source ; newid ; pass. Copies the source branch into a
+NB. new file under SESSION_DIR and opens that file.
+session_cli_fork =: monad define
+  'from id pass' =. y
+  got =. session_resolve from
+  if. 0 = # got do. session_cli_fail pass return. end.
+  'path name' =. got
+  session_use path ; name
+  SESSION_LABEL_HOLD =: 1
+  load_session ''
+  new =. id
+  if. 0 = # new do. new =. folder_session '' end.
+  if. -. session_name_ok new do.
+    echo 'Session id is not a valid name.'
+    session_cli_fail pass return.
+  end.
+  if. fexist session_path new do.
+    echo 'Session [' , new , '] already exists.'
+    session_cli_fail pass return.
+  end.
+  SESSION_FILE =: ''
+  new session_write_chain SESSION_HEAD
+  CURRENT_SESSION =: new
+  load_session ''
+  SESSION_LABEL_HOLD =: 0
+  echo 'Forked [' , name , '] -> [' , new , ']'
+  1
+)
+
+NB. y = argument ; pass ; foreign flag (1 forks when the saved
+NB. cwd is not the launch directory, and only on a later pass).
+session_cli_open =: monad define
+  'arg pass foreign' =. y
+  got =. session_resolve arg
+  if. 0 = # got do. session_cli_fail pass return. end.
+  'path name' =. got
+  if. foreign do.
+    if. pass > 0 do.
+      cwd =. session_file_cwd path
+      here =. 1!:43 ''
+      if. 0 < # cwd do.
+        if. -. cwd -: here do.
+          echo 'Session belongs to ' , cwd , '; forking into this directory.'
+          session_cli_fork path ; '' ; pass return.
+        end.
+      end.
+    end.
+  end.
+  session_use path ; name
+  1
+)
+
+NB. y = exact id. Opens it, or leaves an empty session to be
+NB. created on the first save. Does not fork on a foreign cwd.
+session_cli_id =: monad define
+  'id pass' =. y
+  if. -. session_name_ok id do.
+    echo 'Session name must be letters, digits, dot, underscore, or hyphen.'
+    session_cli_fail pass return.
+  end.
+  SESSION_FILE =: ''
+  CURRENT_SESSION =: id
+  1
+)
+
 init_session =: monad define
   mode =. env_text 'JPI_SESSION_MODE'
+  arg =. env_text 'JPI_SESSION_ARG'
+  forkfrom =. env_text 'JPI_FORK_FROM'
+  sid =. env_text 'JPI_SESSION_ID'
+  label =. env_text 'JPI_SESSION_LABEL'
+  pass =. SESSION_INIT_PASS
+  SESSION_INIT_PASS =: pass + 1
   JPI_RESUME_PICK =: 0
-  if. mode -: 'continue' do.
+  SESSION_PERSIST =: 1
+  SESSION_FILE =: ''
+  ok =. 1
+  if. mode -: 'none' do.
+    SESSION_PERSIST =: 0
+    SESSION_FILE =: ''
+    session_reset_tree ''
+    CURRENT_SESSION =: 'scratch'
+    if. 0 < # label do. SESSION_LABEL =: label end.
+    SESSION_LABEL_APPLIED =: 1
+  elseif. 0 < # forkfrom do.
+    ok =. session_cli_fork forkfrom ; sid ; pass
+  elseif. mode -: 'session' do.
+    ok =. session_cli_open arg ; pass ; 1
+  elseif. mode -: 'session-id' do.
+    ok =. session_cli_id sid ; pass
+  elseif. mode -: 'continue' do.
     name =. session_continue_name ''
     if. 0 < # name do.
       CURRENT_SESSION =: name
@@ -573,6 +839,7 @@ init_session =: monad define
   else.
     CURRENT_SESSION =: folder_session ''
   end.
+  SESSION_CLI_OK =: ok
   ''
 )
 

@@ -12,11 +12,13 @@ coinsert 'vt'                     NB. bring all vt verbs into current scope
 NB. load the rest of the agent (theme, agent, etc.)
 NB. ensure we are in src/ so that agent.ijs and its loads can find siblings
 old =. 1!:43 ''
+LAUNCH_CWD =: old
 1!:44 srcdir
 load 'agent.ijs'
 load 'theme.ijs'
 load 'md.ijs'
 1!:44 old
+finish_project_scan ''
 
 NB. session.ijs init_session + load_session fired at LOAD time,
 NB. while cwd was still srcdir - so the session was named 'src'
@@ -47,6 +49,9 @@ TUI_COLS  =: 1 { TUI_hw0
 TUI_OUTPUT =: 0 $ <''
 TUI_SCROLL =: 0   NB. start at top
 TUI_INPUT  =: ''
+NB. Image blocks from a paste or /image. ask_verb appends this
+NB. to the user message and clears it.
+TUI_ATTACH =: ''
 TUI_CURSOR =: 0
 TUI_HISTORY_IDX =: 0
 TUI_INPUT_HISTORY =: 0 $ <''
@@ -738,6 +743,8 @@ tui_steer_poll =: monad define
           parts =. ';' cut seq
           btn =. 0 ". > 0 { parts
           tui_wheel_scroll btn
+        elseif. k3 = 50 do.
+          tui_paste_marker k3
         end.
         NB. any other ESC [ x (arrows, etc.): rest swallowed with x
       else.
@@ -812,6 +819,20 @@ NB. x = prompt string, y = list of choices (boxed strings)
 NB. returns the index of the selected item IN THE ORIGINAL
 NB. LIST, or _1 if aborted.
 
+NB. y = selection ; window start ; visible rows.
+NB. The selection stays on a drawn row. sel - rows + 1 is
+NB. sel-(rows+1) in J, which starts the window one row too
+NB. high: arrowing past the first screen drops the highlight.
+fm_window =: monad define
+  'sel st rows' =. y
+  if. rows < 1 do. rows =. 1 end.
+  if. sel < st do. st =. sel end.
+  if. sel >: st + rows do.
+    st =. 0 >. sel - (rows - 1)
+  end.
+  st
+)
+
 fm_match =: 4 : '+./ (tolower x) E. tolower y'  NB. x flt-in y
 
 NB. longest common prefix of boxed strings
@@ -857,13 +878,12 @@ tui_filter_menu =: dyad define
     if. 0 < # matches do.
       if. sel >: # matches do. sel =. (# matches) - 1 end.
     end.
-    if. sel < st do. st =. sel end.
-    if. sel >: st + h do. st =. sel - h + 1 end.
+    oh =. out_h ''
+    vis =. 1 >. h <. (oh - 2)
+    st =. fm_window sel ; st ; vis
 
     if. -. keyp 0 do.
-      oh =. out_h''
-      mh =. h <. (oh - 2)
-      menu_y =. oh - mh - 2
+      menu_y =. oh - vis - 2
 
       NB. filter line: prompt + [filter] + counts
       goxy 0, menu_y
@@ -877,11 +897,11 @@ tui_filter_menu =: dyad define
       puts ' type=filter  TAB=complete  Enter=select  BS=edit  arrows=move  ESC=abort'
       reset''
 
-      for_i. i. mh do.
+      for_i. i. vis do.
         goxy 0, menu_y + 2 + i
         ceol''
-        if. i < # matches do.
-          idx =. st + i
+        idx =. st + i
+        if. (idx >: 0) *. idx < # matches do.
           v =. > idx { matches { y
           if. idx = sel do.
             tui_theme 'status'
@@ -977,10 +997,11 @@ tui_select_menu =: dyad define
   tui_redraw''
 
   while. 1 do.
+    oh =. out_h ''
+    vis =. 1 >. h <. (oh - 1)
+    st =. fm_window sel ; st ; vis
     if. -. keyp 0 do.
-      oh =. out_h''
-      mh =. h <. (oh - 1)
-      menu_y =. oh - mh - 1
+      menu_y =. oh - vis - 1
       
       goxy 0, menu_y
       ceol''
@@ -988,14 +1009,16 @@ tui_select_menu =: dyad define
       puts ' ' , x
       reset''
       
-      for_i. i. mh do.
+      for_i. i. vis do.
         goxy 0, menu_y + 1 + i
         ceol''
         idx =. st + i
-        if. idx = sel do. tui_theme 'status' else. reset'' end.
-        v =. > idx { y
-        if. idx = sel do. puts ' > ' , (w-4) {. v else. puts '   ' , (w-4) {. v end.
-        reset''
+        if. (idx >: 0) *. idx < # y do.
+          if. idx = sel do. tui_theme 'status' else. reset'' end.
+          v =. > idx { y
+          if. idx = sel do. puts ' > ' , (w-4) {. v else. puts '   ' , (w-4) {. v end.
+          reset''
+        end.
       end.
     end.
     
@@ -1042,8 +1065,6 @@ tui_select_menu =: dyad define
       end.
     end.
     
-    if. sel < st do. st =. sel end.
-    if. sel >: st + h do. st =. sel - (h - 1) end.
   end.
 )
 
@@ -1123,6 +1144,85 @@ tui_wheel_scroll =: monad define
     if. tui_at_bottom '' do. TUI_FOLLOW =: 1 end.
     if. -. keyp 0 do. tui_redraw'' end.
   end.
+)
+
+NB. ESC [ 200 ~ ... ESC [ 201 ~  is a bracketed paste. y is the
+NB. byte after '['. Returns 1 when that byte started a paste
+NB. (the body is consumed either way once the byte is '2').
+tui_paste_marker =: monad define
+  if. y ~: 50 do. 0 return. end.
+  seq =. '2'
+  while. keyp 50 do.
+    c =. a. {~ rkey ''
+    if. '~' = c do. break. end.
+    seq =. seq , c
+    if. 6 < # seq do. break. end.
+  end.
+  if. '200' -: seq do.
+    tui_read_paste_body ''
+  end.
+  1
+)
+
+NB. Read until ESC [ 201 ~. A 400ms gap ends a broken paste.
+tui_read_paste_body =: monad define
+  buf =. ''
+  while. keyp 400 do.
+    k =. rkey ''
+    if. k = 27 do.
+      if. -. keyp 50 do.
+        buf =. buf , 27 { a.
+        continue.
+      end.
+      k2 =. rkey ''
+      if. k2 ~: 91 do.
+        buf =. buf , (27 { a.) , k2 { a.
+        continue.
+      end.
+      seq =. ''
+      while. keyp 50 do.
+        c =. a. {~ rkey ''
+        if. '~' = c do. break. end.
+        seq =. seq , c
+        if. 6 < # seq do. break. end.
+      end.
+      if. '201' -: seq do. break. end.
+      buf =. buf , (27 { a.) , '[' , seq
+    else.
+      buf =. buf , k { a.
+    end.
+  end.
+  tui_apply_paste buf
+  ''
+)
+
+NB. Insert a paste. An image becomes a short note plus TUI_ATTACH.
+tui_apply_paste =: monad define
+  ins =. y
+  att =. ''
+  if. 3 = 4!:0 <'accept_paste' do.
+    pair =. accept_paste y
+    ins =. > {. pair
+    att =. > {: pair
+  end.
+  if. 0 < # att do.
+    if. 0 < # TUI_ATTACH do.
+      TUI_ATTACH =: TUI_ATTACH , LF , att
+    else.
+      TUI_ATTACH =: att
+    end.
+    if. '[image: ' -: 8 {. ins do.
+      p =. 8 }. ins
+      if. ']' = {: p do. p =. }: p end.
+      if. 3 = 4!:0 <'display_image' do.
+        display_image p
+      end.
+    end.
+  end.
+  TUI_INPUT =: (TUI_CURSOR {. TUI_INPUT) , ins , TUI_CURSOR }. TUI_INPUT
+  TUI_CURSOR =: TUI_CURSOR + # ins
+  if. 3 = 4!:0 <'tui_redraw' do. tui_redraw '' end.
+  ''
 )
 
 NB. ============================================================
@@ -1221,6 +1321,10 @@ tui_handle_key =: monad define
             tui_wheel_scroll btn
             return.
           end.
+          if. k3 = 50 do.
+            tui_paste_marker k3
+            return.
+          end.
           select. k3
           case. 65 do.        NB. Up
             opts =. ac_options ''
@@ -1294,6 +1398,7 @@ tui_run =: monad define
   TUI_LINES =: 0{ hw
   TUI_COLS =: 1{ hw
   raw 1
+  puts CSI,'?2004h'          NB. bracketed paste, so a drop arrives whole
   curs 0
   cscr''
   reset''
@@ -1331,6 +1436,7 @@ tui_run =: monad define
   end.
 
   hist_save ''
+  puts CSI,'?2004l'
   if. MOUSE_ON do. puts CSI,'?1000l' [ puts CSI,'?1006l' end.
   curs 1
   reset''

@@ -45,6 +45,73 @@ main =: monad define
   assert -. +./ 'XAI_API_KEY' E. raw
   ferase CONFIG_PROVIDERS_FILE
 
+  echo '=== key source ==='
+  oldp =. CONFIG_PROVIDERS_FILE
+  CONFIG_PROVIDERS_FILE =: '/tmp/jpi-key-test'
+  filek =. 'file-key-abcdefghijklmnopqrstuvwxyz'
+  ('OPENROUTER_API_KEY=' , filek , LF) fwrite CONFIG_PROVIDERS_FILE
+  load_model ''
+  assert filek -: API_KEY
+  ('OPENROUTER_API_KEY=' , filek) fwrite CONFIG_PROVIDERS_FILE
+  load_model ''
+  assert filek -: API_KEY
+  ('OPENROUTER_API_KEY=' , filek , CR , LF) fwrite CONFIG_PROVIDERS_FILE
+  load_model ''
+  assert filek -: API_KEY
+  if. 3 ~: 4!:0 <'build_header_config' do.
+    load 'http.ijs'
+  end.
+  h =. build_header_config ''
+  assert +./ ('Authorization: Bearer ' , filek) E. h
+  'OPENROUTER_API_KEY=1' fwrite CONFIG_PROVIDERS_FILE
+  load_model ''
+  ek =. ''
+  try. ek =. > 2!:5 'OPENROUTER_API_KEY' catch. ek =. '' end.
+  if. (2 = 3!:0 ek) *. 1 < # ek do.
+    assert ek -: API_KEY
+    h =. build_header_config ''
+    assert +./ 'Authorization' E. h
+    assert -. +./ 'Bearer 1"' E. h
+  else.
+    assert 0 = # API_KEY
+  end.
+  ferase CONFIG_PROVIDERS_FILE
+  CONFIG_PROVIDERS_FILE =: oldp
+  load_model ''
+
+  echo '=== trust walk ==='
+  load 'utils.ijs'
+  home =. > 2!:5 'HOME'
+  assert 1 = trust_is_home home
+  assert 0 = trust_is_home '/tmp'
+  oldd =. DECLINED_FILE
+  DECLINED_FILE =: '/tmp/jpi-trust-declined'
+  try. ferase DECLINED_FILE catch. end.
+  assert 0 = is_declined '/tmp/jpi-trust-tree/sub'
+  ('/tmp/jpi-trust-tree/sub' , LF) fappend DECLINED_FILE
+  assert 1 = is_declined '/tmp/jpi-trust-tree/sub'
+  assert 0 = is_declined '/tmp/jpi-trust-tree'
+  ferase DECLINED_FILE
+  DECLINED_FILE =: oldd
+  base =. '/tmp/jpi-trust-tree'
+  sub =. base , '/sub'
+  try. 1!:5 < base catch. end.
+  try. 1!:5 < sub catch. end.
+  oldcwd =. 1!:43 ''
+  1!:44 sub
+  ('x') fwrite sub , '/.git'
+  assert 0 = project_trust_needed ''
+  ferase sub , '/.git'
+  ('hi') fwrite base , '/AGENTS.md'
+  ('x') fwrite base , '/.git'
+  assert 1 = project_trust_needed ''
+  1!:44 oldcwd
+  ferase sub , '/.git'
+  ferase base , '/AGENTS.md'
+  ferase base , '/.git'
+  try. 1!:55 < sub catch. end.
+  try. 1!:55 < base catch. end.
+
   echo '=== prompts ==='
   load 'prompts.ijs'
   one =. (<'hello') expand_template 'Say $1 and ${2:-fallback}.'
@@ -74,8 +141,13 @@ main =: monad define
   stream_consume 'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"path\":\"a.ijs\"}"}}]}}]}' , LF
   assert 'read' -: > (< 0 , 1) { STREAM_TC
   assert +./ 'a.ijs' E. > (< 0 , 2) { STREAM_TC
-  built =. stream_result_json ''
+  oldcwd =. 1!:43 ''
+  1!:44 '/tmp'
+  built =. ''
+  try. built =. stream_result_json '' catch. built =. 13!:12 '' end.
+  1!:44 oldcwd
   assert +./ 'tool_calls' E. built
+  assert -. +./ 'file name error' E. built
   assert -. +./ 'json_null' E. built
 
   echo '=== image marker ==='
@@ -138,6 +210,64 @@ main =: monad define
   results =. process_tool_calls dec_json js
   assert +./ '[took ' E. > {. results
   ferase fn
+
+  echo '=== bad tool arguments ==='
+  NB. A cut-off arguments string must come back as a tool result.
+  NB. It must not run, and it must not kill the loop. The command
+  NB. below would remove keep.txt if the fragment were executed.
+  keep =. '/tmp/jpi-feat-sessions/keep.txt'
+  'stay' fwrite keep
+  bad =. '{"command":"rm /tmp/jpi-feat-sessions/keep.txt'
+  js =. '{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":"","tool_calls":[{"id":"call_del","type":"function","function":{"name":"bash","arguments":' , (enc_json_fixed bad) , '}}]}}]}'
+  parsed =. dec_json js
+  'tc_id name args_str args' =. parse_or_tool_call > {. get_or_tool_calls parsed
+  assert 'call_del' -: tc_id
+  assert _1 -: args
+  results =. process_tool_calls parsed
+  got =. > {. results
+  assert +./ 'call_del' E. got
+  assert +./ 'not valid JSON' E. got
+  assert fexist keep
+  ferase keep
+  obj =. '{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":"","tool_calls":[{"id":"call_obj","type":"function","function":{"name":"ls","arguments":{"path":"/tmp/jpi-feat-sessions"}}}]}}]}'
+  results =. process_tool_calls dec_json obj
+  got =. > {. results
+  assert +./ 'call_obj' E. got
+  assert +./ '[took ' E. got
+
+  echo '=== menu window ==='
+  raw =. fread 'tui.ijs'
+  if. LF ~: {: raw do. raw =. raw , LF end.
+  lines =. <;._2 raw
+  start =. 0
+  for_i. i. # lines do.
+    if. 'fm_window =:' -: 12 {. > i { lines do. start =. i break. end.
+  end.
+  assert start > 0
+  body =. ''
+  for_i. start + i. 20 do.
+    line =. > i { lines
+    body =. body , line , LF
+    if. (1 = # line) *. ')' = {. line do. break. end.
+  end.
+  0!:0 body
+  assert 0 = fm_window 9 ; 0 ; 10
+  assert 1 = fm_window 10 ; 0 ; 10
+  assert 0 = fm_window 0 ; 1 ; 10
+  assert 1 = fm_window 6 ; 0 ; 6
+  assert 90 = fm_window 99 ; 80 ; 10
+  NB. The old expression parks the window off the selection.
+  assert _1 = 10 - 10 + 1
+
+  echo '=== model pricing ==='
+  load 'utils.ijs'
+  arr =. dec_json '{"id":"grok-imagine-image","pricing":[{"quality":"standard","price":2}]}'
+  assert 0 = # model_price_label 'pricing' gethash_json arr
+  obj =. dec_json '{"id":"k","pricing":{"input_per_million":1.5,"output_per_million":2}}'
+  lab =. model_price_label 'pricing' gethash_json obj
+  assert +./ 'EUR/M in' E. lab
+  assert +./ 'EUR/M out' E. lab
+  assert 0 = # model_price_label _1
 
   echo 'ALL TESTS PASSED'
 )

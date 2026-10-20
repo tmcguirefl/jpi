@@ -107,4 +107,42 @@ tui_tab_complete =: monad define
   ''
 )
 
+NB. y = one bracketed paste. Returns text-to-insert ; attachment.
+NB. An image path, a file:// URL, or a data:image URL becomes an
+NB. attachment. The inserted text is a short [image: path] note.
+NB. Any other paste is inserted as text with an empty attachment.
+accept_paste =: monad define
+  s =. y
+  t =. deb s
+  if. 1 < # t do.
+    if. ('"' = {. t) *. ('"' = {: t) do.
+      t =. deb }. }: t
+    end.
+  end.
+  if. 7 <: # t do.
+    if. 'file://' -: 7 {. t do.
+      t =. 7 }. t
+    end.
+  end.
+  if. 11 <: # t do.
+    if. 'data:image/' -: 11 {. t do.
+      if. 3 = 4!:0 <'save_data_image' do.
+        path =. save_data_image t
+        if. 0 < # path do.
+          ('[image: ' , path , ']') ; mention_block path return.
+        end.
+      end.
+      s ; '' return.
+    end.
+  end.
+  if. fexist t do.
+    if. 3 = 4!:0 <'is_image' do.
+      if. is_image t do.
+        ('[image: ' , t , ']') ; mention_block t return.
+      end.
+    end.
+  end.
+  s ; ''
+)
+
 echo 'editor loaded.'

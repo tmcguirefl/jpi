@@ -7,6 +7,46 @@ tools (file read/write, shell commands, code editing), and working within
 a project directory — similar in spirit to the
 [pi coding agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent).
 
+## Where this tree stands
+
+Jared Nicholson's distribution is applied on `main`. That work added
+the print, RPC, and serve modes, the plugin loader and MCP client, the
+vt.ijs TUI, the J-tool escalation ladder, and the architecture notes.
+Later changes bring this base closer to the current
+[Pi coding agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent)
+(`packages/coding-agent` in the earendil-works/pi monorepo).
+
+Pi ships without sub-agents and without plan mode. Those are not
+missing pieces here. `codemode` and deferred MCP tool search are held
+on purpose.
+
+Features brought over from that harness:
+
+- **Sessions.** A JSONL tree with entry ids and parents. `/session`,
+  `/fork`, `/clone`, `/tree`, and `/name`. Launch flags `--continue`,
+  `--resume`, `--session`, `--session-id`, `--fork`, `--no-session`,
+  and `-n` / `--name`. `/export`, `/import`, and `/transcript`.
+- **Editor.** Steer a running turn from the input line. `@path`
+  mentions and path completion. Paste an image path, a `file://` URL,
+  or a `data:image` payload. `/image` attaches a clipboard PNG.
+- **Tools.** `read`, `bash`, `edit`, and `write`, plus `grep`, `find`,
+  and `ls`. `/git` for project git helpers.
+- **Models.** `/model` lists catalogs with context windows and prices.
+  `/login` and `/logout` store API keys. A `grok-` or `xai/` id talks
+  to xAI directly. `/think` and `/context` set the reasoning and
+  context budgets. Replies stream.
+- **Project trust.** The first launch in a tree that has plugins,
+  skills, prompts, or `AGENTS.md` asks once. `y` is saved in
+  `~/.jpi/trusted`. Any other answer is saved in `~/.jpi/declined`.
+- **MCP.** `jpi mcp list`, `add`, and `remove` edit `~/.jpi/mcp.json`.
+  A trusted project `mcp.json` overrides those names. `/mcp` lists
+  servers and `/mcp reload` reconnects. `--no-mcp` keeps MCP tools
+  off the request. `${NAME}` in a server config expands from the
+  environment or `~/.jpi_providers`.
+- **Skills and prompts.** `SKILL.md` discovery, `/skill:name`, and
+  `/reload` for skills, prompt templates, and the theme. `/prompt`
+  prints the system prompt the model sees.
+
 ## Quick Start
 
 ```bash
@@ -21,6 +61,11 @@ a project directory — similar in spirit to the
 | Print | `jpi -p "prompt"` | One-shot: run the prompt through the full agent loop, print only the reply on stdout, exit. Fresh context — sessions are untouched |
 | RPC | `jpi rpc` | Interactive JSONL: command objects on stdin, event objects on stdout, one per line. Commands process as they arrive (the peer may hold the pipe open); runs until `{"cmd":"exit"}` or EOF. Drives sessions (`ask`, `session`, `fork`, `clear`, `model`, `exit`; any `/`-command name works). Protocol in `src/pi_rpc.ijs` |
 | Serve | `jpi serve` | The same JSONL protocol over a localhost TCP socket (port 8765, `JPI_SERVE_PORT` to change). The service owns the session: clients **attach**, send commands, and **detach** without killing anything — the next client reconnects to the live session. One client at a time (phase 1). Adds `sessions` (list saved sessions) and `attach <name>` (switch session + replay its messages as `history` events) on top of the rpc command set; `{"cmd":"exit"}` closes only that client. Protocol in `src/pi_serve.ijs` |
+| MCP config | `jpi mcp list`, `add`, `remove` | Edit `~/.jpi/mcp.json` without starting the TUI. `list` also connects the configured servers. See `src/pi_mcp.ijs` |
+
+Flags come before the mode: `--continue`, `--resume`, `--session`,
+`--session-id`, `--fork`, `--no-session`, `-n` / `--name`, `--no-mcp`,
+and `--tools`. `jpi --help` prints the same list.
 
 Example — a one-shot exchange, exit at EOF:
 
@@ -77,22 +122,26 @@ Plugin packages and `.ijs` extensions are executable code: plugin
 startup. jpi loads its own shipped plugins plus `~/.jpi/plugins`
 (yours), and — only in directories you have trusted — any
 `plugins/` directory in the project you launched from. The first
-time jpi meets a project that carries its own `plugins/`, it asks
-once at the terminal:
+time jpi meets a directory whose walk (up to, but not including,
+`$HOME` or `.git`) contains `plugins/`, `skills/`, `prompts/`, or
+`AGENTS.md`, it asks once at the terminal:
 
 ```
-jpi: first time in /path/to/project: load its local jpi plugins? [y/N]
+jpi: first time in /path/to/project: load its project files (plugins, skills, prompts, AGENTS.md)? [y/N]
 ```
 
-`y` is remembered in `~/.jpi/trusted`; any other answer skips them
-(that project) for that launch. Headless runs (`-p`, `rpc`) never
-prompt: project-local plugins are skipped unless the directory is
+`y` is saved in `~/.jpi/trusted`. Any other answer is saved in
+`~/.jpi/declined` and is not asked again. Headless runs (`-p`, `rpc`)
+never prompt: project files are skipped unless the directory is
 already trusted.
 
-Keys are read from this file only — never from environment variables — so
-the bash tool's child processes cannot exfiltrate them. Keys are passed to
-curl via `-K` (header config file), so they do not appear in `ps aux`. The
-model is stored in `~/.jpi_model` (set it inside jpi with `/model`).
+A value in `~/.jpi_providers` longer than one character is the key.
+A one-character placeholder is ignored, and the same-named environment
+variable is used when it is longer than one character. The key is
+passed to curl via `-K` (header config file) and that file is erased
+after the request, so the key does not appear on the curl command
+line. The model is stored in `~/.jpi_model` (set it inside jpi with
+`/model`).
 
 Thinking configuration for reasoning models (on/off, optional token budget)
 is stored in `~/.jpi_think` and managed with `/think`. Providers whose API
@@ -101,7 +150,7 @@ has no thinking parameter ignore it; Cohere maps it to
 
 ## Providers
 
-Nine providers are supported, inferred from the model string prefix:
+Ten providers are supported, inferred from the model string prefix:
 
 | Prefix / pattern | Provider | Endpoint |
 |------------------|----------|----------|
@@ -109,15 +158,18 @@ Nine providers are supported, inferred from the model string prefix:
 | `claude-*` | anthropic | api.anthropic.com |
 | `command-*`, `north-*` | cohere | api.cohere.com |
 | `gemini*` | google | googleapis.com |
+| `xai/*`, `grok-*` | xai | api.x.ai |
 | `hyai/*` | hyai | hostyourai.com |
 | `tcm/*` | tcm | tcmcguire.servehttp.com |
 | `mistral/*` | mistral | api.mistral.ai |
 | `local/*` | local | localhost:8080 |
 | `ollama/*` | ollama | localhost:11434 |
 
-Routing prefixes (`hyai/`, `tcm/`, `local/`, `ollama/`) are stripped before
-the API call. Anthropic uses `input_schema` in tool definitions; all other
-providers use the OpenAI `{"type":"function","function":...}` form.
+Routing prefixes (`xai/`, `hyai/`, `tcm/`, `mistral/`, `cohere/`,
+`local/`, `ollama/`) are stripped before the API call. A bare `grok-`
+id is sent as-is. Anthropic uses `input_schema` in tool definitions;
+all other providers use the OpenAI `{"type":"function","function":...}`
+form.
 
 ## Features
 
@@ -258,7 +310,14 @@ src/
   usage.ijs             # token and cost tracking
   system_prompt.ijs     # dynamic system prompt builder
   git.ijs               # git context helper
-  session.ijs           # session save/load (JSONL)
+  session.ijs           # session tree, save/load, launch selectors
+  stream.ijs            # SSE assembly for chat completions
+  editor.ijs            # @path mentions, completion, image paste
+  mcp_cfg.ijs           # user and project mcp.json
+  pi_mcp.ijs            # jpi mcp list|add|remove
+  pi_print.ijs          # one-shot print mode
+  pi_rpc.ijs            # JSONL RPC mode
+  pi_serve.ijs          # localhost JSONL service
   confirm.ijs           # edit/write confirmation prompts
   safety.ijs            # bash command blocklist
   log.ijs               # logging
@@ -273,7 +332,8 @@ docs/                   # design specs, plans, handoff notes
 ## Contributors
 
 - **Tom McGuire** ([@tmcguirefl](https://github.com/tmcguirefl)) — project creator
-- **Pi Coding Agent** ([pi](https://github.com/earendil-works/pi)) — AI pair-programming partner; co-developed the TUI, markdown renderer, escape-code architecture, and project structure
+- **Jared Nicholson** — print, RPC, and serve modes, plugins and MCP, the TUI rewrite, and the J-tool escalation ladder
+- **Pi Coding Agent** ([pi](https://github.com/earendil-works/pi)) — the harness this project follows; the TUI, tool loop, and session model are a J reimplementation of that design
 
 ## Acknowledgments & Credits
 

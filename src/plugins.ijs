@@ -16,6 +16,7 @@ NB.   $JPI_SRC/plugins/    — built-in (shipped with jpi)
 
 require 'files'
 require 'utils.ijs'
+load 'mcp_cfg.ijs'
 
 NB. skills.ijs is loaded by agent.ijs before plugins.ijs
 NB. We depend on: discover_skills_in, SKILLS
@@ -119,6 +120,9 @@ load_mcp_json =: monad define
       echo 'PLUGINS: error reading MCP server config for "' , srv_name , '"'
       return.
     end.
+    if. 3 = 4!:0 <'mcp_should_load' do.
+      if. -. mcp_should_load srv_name ; < srv_cfg do. return. end.
+    end.
     if. srv_type -: 'stdio' do.
       load_mcp_stdio srv_cfg ; plugin_root ; plugin_name ; srv_name
     elseif. srv_type -: 'http' do.
@@ -127,13 +131,32 @@ load_mcp_json =: monad define
       echo 'PLUGINS: skipping MCP server "' , srv_name , '" (unsupported type: ' , (":srv_type) , ')'
     end.
   else.
-    NB. Multiple servers: 2-column table (name ; config)
-    for_s. servers do.
-      'srv_name srv_cfg' =. s
-      srv_name =. > srv_name
-      srv_cfg =. > srv_cfg
-      if. 1 = $$ srv_cfg do. srv_cfg =. ,srv_cfg end.
-      srv_type =. > 'type' gethash_json srv_cfg
+    NB. One row per server after this. dec_json objects are two
+    NB. rows (every name, then every config), so those are flipped
+    NB. when row 0 is all strings. A table that is already
+    NB. name ; config per row is left alone.
+    rows =. servers
+    if. 2 = {. $ rows do.
+      flat =. 1
+      for_c. 0 { rows do.
+        if. 2 ~: 3!:0 > c do. flat =. 0 end.
+      end.
+      if. flat do. rows =. |: rows end.
+    end.
+    for_i. i. # rows do.
+      srv_name =. > (< i, 0) { rows
+      srv_cfg =. > (< i, 1) { rows
+      if. 3 = # $ srv_cfg do. srv_cfg =. (2 , {: $ srv_cfg) $ , srv_cfg end.
+      if. 1 = $$ srv_cfg do. srv_cfg =. , srv_cfg end.
+      if. 3 = 4!:0 <'mcp_should_load' do.
+        if. -. mcp_should_load srv_name ; < srv_cfg do. continue. end.
+      end.
+      srv_type =. ''
+      try.
+        srv_type =. > 'type' gethash_json srv_cfg
+      catch.
+        srv_type =. ''
+      end.
       if. srv_type -: 'stdio' do.
         load_mcp_stdio srv_cfg ; plugin_root ; plugin_name ; srv_name
       elseif. srv_type -: 'http' do.
@@ -186,9 +209,11 @@ load_mcp_stdio =: monad define
       echo 'PLUGINS: MCP server "' , srv_name , '" ready (' , (": # MCP_TOOLS) , ' tools)'
     else.
       echo 'PLUGINS: MCP server "' , srv_name , '" failed to initialize'
+      MCP_LOAD_FAIL =: 1
       mcp_shutdown sid
     end.
   catch.
+    MCP_LOAD_FAIL =: 1
     echo 'PLUGINS: failed to spawn MCP server "' , srv_name , '"'
     NB. Clean up partial state: if mcp_spawn inserted a row but mcp_init
     NB. threw, the row with live fds is still in MCP_SERVERS.
@@ -219,6 +244,9 @@ load_mcp_http =: monad define
       end.
     end.
   end.
+  if. 3 = 4!:0 <'mcp_expand_refs' do.
+    auth =. mcp_expand_refs auth
+  end.
   echo 'PLUGINS: connecting MCP server "' , srv_name , '": ' , url
   try.
     sid =. mcp_http_connect url ; auth
@@ -228,9 +256,11 @@ load_mcp_http =: monad define
       echo 'PLUGINS: MCP server "' , srv_name , '" ready (' , (": # MCP_TOOLS) , ' tools)'
     else.
       echo 'PLUGINS: MCP server "' , srv_name , '" failed to initialize'
+      MCP_LOAD_FAIL =: 1
       mcp_shutdown sid
     end.
   catch.
+    MCP_LOAD_FAIL =: 1
     echo 'PLUGINS: failed to connect MCP server "' , srv_name , '"'
     try. if. 0 < 4!:0 <'sid' do. mcp_shutdown sid end. catch. end.
   end.
@@ -305,6 +335,9 @@ discover_all_plugins =: monad define
     end.
   end.
   echo 'Plugins loaded: ' , (": # PLUGINS) , ' plugin(s)'
+  if. 3 = 4!:0 <'load_user_and_project_mcp' do.
+    load_user_and_project_mcp ''
+  end.
 )
 
 NB. ================================================================

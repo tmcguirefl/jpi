@@ -112,15 +112,119 @@ case "$JBIN" in
         ;;
 esac
 
-# Flags before the mode. --tools takes the next argument.
+# Flags before the mode. --tools, --session, --session-id, --fork,
+# and --name take the next argument. Session selectors exclude
+# each other. --fork may be combined with --session-id and --name.
+session_reject() {
+    echo "jpi: $1 cannot be combined with $2" >&2
+    exit 2
+}
+
+set_session_mode() {
+    flag=$1
+    mode=$2
+    if [ -n "${JPI_FORK_FROM:-}" ] && [ "$mode" != "session-id" ]; then
+        session_reject "$flag" "--fork"
+    fi
+    if [ -n "${JPI_SESSION_MODE:-}" ] && [ "$JPI_SESSION_MODE" != "$mode" ]; then
+        session_reject "$flag" "the other session flag"
+    fi
+    export JPI_SESSION_MODE="$mode"
+}
+
+need_flag_value() {
+    if [ $# -lt 2 ] || [ -z "$2" ]; then
+        echo "jpi: $1 needs a value" >&2
+        exit 2
+    fi
+}
+
 while [ $# -gt 0 ]; do
     case "$1" in
         --continue)
-            export JPI_SESSION_MODE=continue
+            set_session_mode "--continue" continue
             shift
             ;;
         --resume)
-            export JPI_SESSION_MODE=resume
+            set_session_mode "--resume" resume
+            shift
+            ;;
+        --no-session)
+            set_session_mode "--no-session" none
+            shift
+            ;;
+        --session)
+            need_flag_value "$@"
+            set_session_mode "--session" session
+            export JPI_SESSION_ARG="$2"
+            shift 2
+            ;;
+        --session=*)
+            set_session_mode "--session" session
+            export JPI_SESSION_ARG="${1#--session=}"
+            if [ -z "$JPI_SESSION_ARG" ]; then
+                echo "jpi: --session needs a value" >&2
+                exit 2
+            fi
+            shift
+            ;;
+        --session-id)
+            need_flag_value "$@"
+            set_session_mode "--session-id" session-id
+            export JPI_SESSION_ID="$2"
+            shift 2
+            ;;
+        --session-id=*)
+            set_session_mode "--session-id" session-id
+            export JPI_SESSION_ID="${1#--session-id=}"
+            if [ -z "$JPI_SESSION_ID" ]; then
+                echo "jpi: --session-id needs a value" >&2
+                exit 2
+            fi
+            shift
+            ;;
+        --fork)
+            need_flag_value "$@"
+            case "${JPI_SESSION_MODE:-}" in
+                continue|resume|session|none)
+                    session_reject "--fork" "--${JPI_SESSION_MODE}"
+                    ;;
+            esac
+            if [ -n "${JPI_FORK_FROM:-}" ]; then
+                echo "jpi: --fork given twice" >&2
+                exit 2
+            fi
+            export JPI_FORK_FROM="$2"
+            shift 2
+            ;;
+        --fork=*)
+            case "${JPI_SESSION_MODE:-}" in
+                continue|resume|session|none)
+                    session_reject "--fork" "--${JPI_SESSION_MODE}"
+                    ;;
+            esac
+            if [ -n "${JPI_FORK_FROM:-}" ]; then
+                echo "jpi: --fork given twice" >&2
+                exit 2
+            fi
+            export JPI_FORK_FROM="${1#--fork=}"
+            if [ -z "$JPI_FORK_FROM" ]; then
+                echo "jpi: --fork needs a value" >&2
+                exit 2
+            fi
+            shift
+            ;;
+        -n|--name)
+            need_flag_value "$@"
+            export JPI_SESSION_LABEL="$2"
+            shift 2
+            ;;
+        --name=*)
+            export JPI_SESSION_LABEL="${1#--name=}"
+            if [ -z "$JPI_SESSION_LABEL" ]; then
+                echo "jpi: --name needs a value" >&2
+                exit 2
+            fi
             shift
             ;;
         --no-mcp)
@@ -145,17 +249,36 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Mode dispatch: default is the interactive TUI
+case "${1:-}" in
+    -p|--print|rpc|--rpc|serve|--serve)
+        if [ "${JPI_SESSION_MODE:-}" = resume ]; then
+            echo "jpi: --resume is only for the interactive session" >&2
+            exit 2
+        fi
+        ;;
+esac
+
+# Mode dispatch: default is the interactive TUI.
+# The title restore below would otherwise hide the child's status.
+jpi_status=0
 case "${1:-}" in
     -p|--print)
         shift
         "$JBIN" "$JPI_SRC/pi_print.ijs" "$@"
+        jpi_status=$?
         ;;
     rpc|--rpc)
         "$JBIN" "$JPI_SRC/pi_rpc.ijs"
+        jpi_status=$?
+        ;;
+    mcp)
+        shift
+        "$JBIN" "$JPI_SRC/pi_mcp.ijs" "$@"
+        jpi_status=$?
         ;;
     serve|--serve)
         "$JBIN" "$JPI_SRC/pi_serve.ijs"
+        jpi_status=$?
         ;;
     -h|--help)
         cat <<'USAGE'
@@ -171,15 +294,23 @@ jpi serve              service mode: same JSONL protocol over a localhost
 Flags come before the mode:
   --continue           reopen the newest session for this directory
   --resume             pick a session from the list (interactive)
+  --session PATH|ID    open that session file or a unique name
+  --session-id ID      open or create that exact session name
+  --fork PATH|ID       copy that session into a new file
+  --no-session         keep the conversation in memory
+  -n, --name LABEL     set the session display name
   --no-mcp             do not send MCP tools to the model
   --tools LIST         comma list of tools. +name/-name edits the
                        default set; a trailing * is a prefix.
+  mcp list|add|remove  manage ~/.jpi/mcp.json (see: jpi mcp)
 USAGE
         ;;
     *)
         "$JBIN" "$JPI_SRC/tui_run.ijs"
+        jpi_status=$?
         ;;
 esac
 
 # Restore title on exit
 printf '\033]0;%s\007' "${SHELL##*/}" >&2
+exit "$jpi_status"

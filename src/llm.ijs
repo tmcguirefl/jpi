@@ -893,19 +893,65 @@ get_or_tool_calls =: monad define
   end.
 )
 
-NB. Extract id, function name, and parsed arguments from one tool call
+NB. Character id from one tool call, or ''.
+tool_call_id =: monad define
+  if. (32 ~: 3!:0 y) +. 2 ~: #$ y do. '' return. end.
+  v =. 'id' gethash_json y
+  if. _1 -: v do. '' return. end.
+  v =. open_boxes v
+  if. 2 ~: 3!:0 v do. '' return. end.
+  , v
+)
+
+NB. Extract id, function name, and parsed arguments from one tool call.
+NB. The fourth item is _1 when arguments are missing, truncated, or
+NB. not an object. dec_json of that text used to throw, and the
+NB. tool loop then died before the tool ran. A rank-2 arguments
+NB. value is already an object: some providers do not send a string.
+NB. box args with < so ; does not flatten the 2-row table.
 parse_or_tool_call =: monad define
-  tc_id =. > 'id' gethash_json y
-  func =. > 'function' gethash_json y
+  if. (32 ~: 3!:0 y) +. 2 ~: #$ y do.
+    '' ; 'unknown' ; '' ; < _1
+    return.
+  end.
+  tc_id =. tool_call_id y
+  func =. 'function' gethash_json y
   NB. Guard: if 'function' key is missing, gethash_json returns _1.
   NB. Passing _1 to gethash_json again triggers assertion failure
   NB. (2=$$y) because _1 is not a rank-2 table.
   if. _1 -: func do. tc_id ; 'unknown' ; '' ; < 0 2 $ '' return. end.
-  name =. > 'name' gethash_json func
-  args_str =. > 'arguments' gethash_json func
-  args =. dec_json args_str
-  NB. box args with < to prevent flattening (args is a 2-row table)
-  tc_id ; name ; args_str ; < args
+  func =. open_boxes func
+  if. (32 ~: 3!:0 func) +. 2 ~: #$ func do.
+    tc_id ; 'unknown' ; '' ; < _1
+    return.
+  end.
+  nv =. 'name' gethash_json func
+  name =. 'unknown'
+  if. _1 -.@-: nv do.
+    nv =. open_boxes nv
+    if. 2 = 3!:0 nv do. name =. , nv end.
+  end.
+  av =. 'arguments' gethash_json func
+  if. _1 -: av do.
+    tc_id ; name ; '{}' ; < dec_json '{}'
+    return.
+  end.
+  av =. open_boxes av
+  if. 2 = 3!:0 av do.
+    args_str =. av
+    if. 0 = # args_str do. args_str =. '{}' end.
+    args =. _1
+    try. args =. dec_json args_str catch. args =. _1 end.
+    if. (32 = 3!:0 args) *. 2 = #$ args do.
+      tc_id ; name ; args_str ; < args
+    else.
+      tc_id ; name ; args_str ; < _1
+    end.
+  elseif. (32 = 3!:0 av) *. 2 = #$ av do.
+    tc_id ; name ; (enc_json_fixed av) ; < av
+  elseif. do.
+    tc_id ; name ; '' ; < _1
+  end.
 )
 
 NB. Build a tool result message
@@ -922,27 +968,45 @@ process_tool_calls =: monad define
   calls =. get_or_tool_calls y
   results =. 0 $ <''
   for_c. calls do.
+    NB. Names assigned with =. anywhere in this verb are local for
+    NB. the whole verb. Reading tc_id in the catch before the
+    NB. assignment ran is a syntax error (unexecutable fragment),
+    NB. and that error is not caught here. It used to abort the
+    NB. tool loop, so the model never saw the real failure.
+    tc_id =. ''
+    result =. ''
     try.
-      'tc_id name args_str args' =. parse_or_tool_call > c
-      NB. Show tool name and arguments for visibility
-      if. 0 < #args_str do.
-        echo 'Tool call: ' , name , ' ' , args_str
+      call =. > c
+      while. (32 = 3!:0 call) *. 0 = #$ call do. call =. > call end.
+      'tc_id name args_str args' =. parse_or_tool_call call
+      if. _1 -: args do.
+        if. 0 = # tc_id do. tc_id =. 'unknown' end.
+        result =. 'ERROR: tool arguments are not valid JSON. Send the complete arguments again.'
+        if. 0 < # args_str do.
+          result =. result , LF , 200 {. args_str
+        end.
+        echo result
       else.
-        echo 'Tool call: ' , name
+        NB. Show tool name and arguments for visibility
+        if. 0 < # args_str do.
+          echo 'Tool call: ' , name , ' ' , args_str
+        else.
+          echo 'Tool call: ' , name
+        end.
+        NB. box args with < to prevent ; from flattening the 2-row table
+        t0 =. 6!:1 ''
+        result =. exec_tool name ; < args
+        dt =. (6!:1 '') - t0
+        if. 2 ~: 3!:0 result do. result =. ": result end.
+        result =. '[took ' , (0j2 ": dt) , 's]' , LF , result
+        NB. Show first 500 chars of result, ellipsis if truncated
+        preview =. 500 {. result
+        if. 500 < # result do. preview =. preview , '...' end.
+        echo 'Tool result: ' , preview
       end.
-      NB. box args with < to prevent ; from flattening the 2-row table
-      t0 =. 6!:1 ''
-      result =. exec_tool name ; < args
-      dt =. (6!:1 '') - t0
-      if. 2 ~: 3!:0 result do. result =. ": result end.
-      result =. '[took ' , (0j2 ": dt) , 's]' , LF , result
-      NB. Show first 500 chars of result, ellipsis if truncated
-      preview =. 500 {. result
-      if. 500 < #result do. preview =. preview , '...' end.
-      echo 'Tool result: ' , preview
     catch.
       err_msg =. 13!:12 ''
-      if. 0 = #tc_id do. tc_id =. 'unknown' end.
+      if. 0 = # tc_id do. tc_id =. 'unknown' end.
       result =. 'ERROR: tool execution failed during parsing or validation: ' , err_msg
       echo result
     end.
