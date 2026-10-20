@@ -7,11 +7,25 @@ load 'confirm.ijs'
 NB. Tool name lookup
 TOOLS =: 'read';'bash';'edit';'write';'j'
 
+NB. First character argument of a tool object, or empty.
+NB. Skips a missing key and JSON null.
+tool_text =: monad define
+  if. y -: _1 do. '' return. end.
+  v =. y
+  if. 32 = 3!:0 v do.
+    if. 0 = $$ v do. v =. > v else. '' return. end.
+  end.
+  if. (2 ~: 3!:0 v) +. v -: 'json_null' do. '' return. end.
+  v
+)
+
 NB. Execute a single tool call
 NB. y = tool_name ; input_object (parsed JSON, boxed)
 exec_tool =: monad define
   'name input' =. y
-  log 'tool_exec: ' , name
+  hint =. tool_text 'command' gethash_json input
+  if. 0 = # hint do. hint =. tool_text 'path' gethash_json input end.
+  log 'tool_exec: ' , name , (0 < # hint) # ' ' , 160 {. hint
   idx =. TOOLS i. < name
   if. idx < #TOOLS do.
     NB. built-in tool

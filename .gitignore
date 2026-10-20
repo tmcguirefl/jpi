@@ -16,3 +16,4 @@ docs/
 # API keys / secrets
 .env
 api_key.txt
+.jpi_providers

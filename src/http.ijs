@@ -68,8 +68,8 @@ http_post_async =: dyad define
   cmd =. cmd , ' -d @' , HTTP_TMPFILE
   cmd =. cmd , ' -o ' , HTTP_RESPONSE_FILE
   cmd =. cmd , ' ' , url
-  NB. run in background, touch done flag when finished
-  cmd =. '(' , cmd , ' ; touch ' , HTTP_DONE_FILE , ') &'
+  NB. run in background, touch done flag when finished. Use </dev/null to prevent stdin stealing
+  cmd =. '(' , cmd , ' ; touch ' , HTTP_DONE_FILE , ') </dev/null &'
   2!:0 cmd
 )
 

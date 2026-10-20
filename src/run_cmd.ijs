@@ -19,7 +19,7 @@ run_cmd =: monad define
     NB. wrap with stderr redirect; use perl for timeout (works on macOS)
     NB. inject an alias for jconsole transparently before running
     shell_setup =. 'jconsole() { "$JBIN" "$@"; }; '
-    full_cmd =. 'perl -e ''alarm ' , (": timeout) , '; exec @ARGV'' sh -c ' , (dquote (shell_setup,cmd)) , ' 2>&1'
+    full_cmd =. 'perl -e ''alarm ' , (": timeout) , '; exec @ARGV'' sh -c ' , (dquote (shell_setup,cmd)) , ' </dev/null 2>&1'
     out =. 2!:0 full_cmd
     NB. truncate if too long
     if. MAX_OUTPUT < #out do.

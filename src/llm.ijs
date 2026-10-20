@@ -78,7 +78,7 @@ NB. Conversation history: boxed list of JSON message strings
 HISTORY =: 0 $ <''
 
 NB. Max tool call iterations before giving up
-MAX_TOOL_LOOPS =: 10
+MAX_TOOL_LOOPS =: 15
 
 NB. Reset conversation
 clear_history =: monad define
@@ -96,8 +96,10 @@ build_payload =: monad define
   NB. trim history if approaching context window limit
   trim_history ''
   tools =. get_tools ''
-  NB. system message first, then conversation history
-  sys =. 'system' mk_msg SYSTEM_PROMPT
+  NB. Rebuild each call. The global was captured while startup had
+  NB. chdir'd into src/, so tools ran in a different directory than
+  NB. the one the model was told about.
+  sys =. 'system' mk_msg get_system_prompt ''
   all =. (< sys) , HISTORY
   msgs =. _1 }. ; (,&',') each all
   
@@ -177,28 +179,50 @@ get_or_message =: monad define
   > 'message' gethash_json > {. choices
 )
 
-NB. Get finish_reason from response
+NB. Get finish_reason from response. JSON null is an empty reason.
 get_or_finish =: monad define
-  choices =. > 'choices' gethash_json y
-  > 'finish_reason' gethash_json > {. choices
+  try.
+    choices =. > 'choices' gethash_json y
+    fr =. 'finish_reason' gethash_json > {. choices
+  catch.
+    '' return.
+  end.
+  if. fr -: _1 do. '' return. end.
+  if. json_nullq fr do. '' return. end.
+  if. 32 = 3!:0 fr do. fr =. > fr end.
+  if. 2 ~: 3!:0 fr do. '' return. end.
+  fr
 )
 
 NB. Check if response contains tool calls
 is_tool_call =: monad define
-  finish =. get_or_finish y
-  finish -: 'tool_calls'
+  if. 'tool_calls' -: get_or_finish y do. 1 return. end.
+  0 < # get_or_tool_calls y
 )
 
-NB. Extract text content from assistant message
+NB. Extract text content from assistant message.
+NB. JSON null is not text. Rendering it prints json_null.
 get_or_content =: monad define
   msg =. get_or_message y
-  > 'content' gethash_json msg
+  if. json_nullq msg do. '' return. end.
+  c =. 'content' gethash_json msg
+  if. c -: _1 do. '' return. end.
+  if. json_nullq c do. '' return. end.
+  if. 32 = 3!:0 c do. c =. > c end.
+  if. 2 ~: 3!:0 c do. '' return. end.
+  c
 )
 
-NB. Get tool_calls array from assistant message
+NB. Get tool_calls array from assistant message.
+NB. A single call is a scalar box. Disclosing that yields the object
+NB. table, so keep it as a one-item list.
 get_or_tool_calls =: monad define
   msg =. get_or_message y
-  > 'tool_calls' gethash_json msg
+  if. json_nullq msg do. 0$a: return. end.
+  tc =. 'tool_calls' gethash_json msg
+  if. tc -: _1 do. 0$a: return. end.
+  if. json_nullq tc do. 0$a: return. end.
+  boxed_items tc
 )
 
 NB. Extract id, function name, and parsed arguments from one tool call
@@ -229,14 +253,17 @@ process_tool_calls =: monad define
     try.
       'tc_id name args' =. parse_or_tool_call > c
       echo 'Tool call: ' , name
+      if. 0 <= 4!:0 <'TUI_RUNNING' do. if. TUI_RUNNING do. tui_redraw '' end. end.
       NB. box args with < to prevent ; from flattening the 2-row table
       result =. exec_tool name ; < args
       echo 'Tool result: ' , 80 {. result
+      if. 0 <= 4!:0 <'TUI_RUNNING' do. if. TUI_RUNNING do. tui_redraw '' end. end.
     catch.
       err_msg =. 13!:12 ''
       if. 0 = #tc_id do. tc_id =. 'unknown' end.
       result =. 'ERROR: tool execution failed during parsing or validation: ' , err_msg
       echo result
+      if. 0 <= 4!:0 <'TUI_RUNNING' do. if. TUI_RUNNING do. tui_redraw '' end. end.
     end.
     results =. results , < mk_tool_result tc_id ; result
   end.

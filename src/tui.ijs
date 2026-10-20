@@ -132,10 +132,14 @@ tui_draw_bottom =: monad define
   ceol''
 
   NB. ── row oh+1 .. oh+ih: input lines ──
+  visual =. TUI_INPUT
+  if. LF e. visual do. visual =. visual rplc LF ; (utf8_md_ 16b23ce) end. NB. visually represent LF as return symbol
+  if. CR e. visual do. visual =. visual -. CR end.
+  
   for_r. i. ih do.
     goxy 0, oh + 1 + r
     reset''
-    chunk =. w {. (r * w) }. TUI_INPUT
+    chunk =. w {. (r * w) }. visual
     puts chunk
     ceol''
   end.
@@ -323,6 +327,7 @@ tui_process =: monad define
     'prompt' tui_print '> ',y
     agent 'ask ',y
   end.
+  try. raw 1 catch. end.  NB. ensure bash tool executions didn't wreck the tty state
 )
 
 NB. ============================================================
@@ -451,7 +456,15 @@ NB. ============================================================
 NB. Keyboard handler
 tui_handle_key =: monad define
   k =. y
+  
   if. k e. 10 13 do.          NB. Enter
+    if. TUI_PASTING do.
+      ch =. LF
+      TUI_INPUT =: (TUI_CURSOR{.TUI_INPUT) , ch , (TUI_CURSOR}.TUI_INPUT)
+      TUI_CURSOR =: TUI_CURSOR + 1
+      update_ac_ui ''
+      return.
+    end.
     opts =. ac_options ''
     if. 0 < #opts do.
       cmd =. '/' , (> AC_SEL { opts) , ' '
@@ -502,6 +515,17 @@ tui_handle_key =: monad define
       if. k2=91 do.           NB. [
         if. keyp 0 do.
           k3 =. rkey''
+          NB. Bracketed paste: ESC [ 2 0 0 ~
+          if. k3 = 50 do.
+            seq =. '2'
+            while. 1 do.
+              c =. a. {~ rkey''
+              if. c e. '~$' do. break. end.
+              seq =. seq , c
+            end.
+            if. seq -: '200' do. TUI_PASTING =: 1 return. end.
+            if. seq -: '201' do. TUI_PASTING =: 0 return. end.
+          end.
           NB. SGR mouse event: ESC [ <
           if. k3 = 60 do.
             seq =. ''
@@ -557,8 +581,8 @@ tui_handle_key =: monad define
               end.
               update_ac_ui''
             end.
-          case. 67 do. if. TUI_CURSOR<#TUI_INPUT do. tui_draw_bottom '' [ TUI_CURSOR =: TUI_CURSOR+1 end.
-          case. 68 do. if. TUI_CURSOR>0 do. tui_draw_bottom '' [ TUI_CURSOR =: TUI_CURSOR-1 end.
+          case. 67 do. if. TUI_CURSOR<#TUI_INPUT do. TUI_CURSOR =: TUI_CURSOR+1 [ tui_draw_bottom '' end. 
+          case. 68 do. if. TUI_CURSOR>0 do. TUI_CURSOR =: TUI_CURSOR-1 [ tui_draw_bottom '' end. 
           case. 51 do.        NB. Delete
             if. keyp 0 do. 
               tilde=.rkey'' 
@@ -612,6 +636,8 @@ tui_run =: monad define
     puts CSI,'?1000h'
     puts CSI,'?1006h'
   end.
+  TUI_PASTING =: 0
+  puts CSI,'?2004h'   NB. enable bracketed paste
   
   'prompt' tui_print 'J-PI Agent (TUI2 – pure vt)'
   'muted'  tui_print 'Type a question, !cmd, /cmd, Ctrl+C exit. Ctrl+W toggles mouse wheel scrolling (off = select text).'
@@ -627,12 +653,30 @@ tui_run =: monad define
   end.
 
   hist_save ''
+  puts CSI,'?2004l'   NB. disable bracketed paste
   if. MOUSE_ON do. puts CSI,'?1000l' [ puts CSI,'?1006l' end.
   curs 1
   reset''
   raw 0
   puts CR,LF
   2!:55 (0)          NB. exit jconsole cleanly
+)
+
+NB. Override spinner routines from llm.ijs to target the pure-VT separator line
+tui_spinner =: monad define
+  frame =. > (y { SPINNER)
+  try.
+    curs 0
+    goxy 5, out_h''
+    tui_theme 'status'
+    puts ' ' , frame , ' thinking... '
+    reset''
+  catch. end.
+  (#SPINNER) | y + 1
+)
+
+tui_spinner_clear =: monad define
+  try. tui_draw_bottom '' catch. end.
 )
 
 echo 'tui2 loaded (pure vt escape codes).'
